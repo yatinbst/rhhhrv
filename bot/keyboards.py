@@ -2,18 +2,9 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def main_menu(connected: bool) -> InlineKeyboardMarkup:
+def owner_keyboard() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(text="📁 My Drive", callback_data="menu:drive"),
-        InlineKeyboardButton(text="🔍 Search Drive", callback_data="menu:search"),
-    )
-    b.row(
-        InlineKeyboardButton(text="📊 My Stats", callback_data="menu:stats"),
-        InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
-    )
-    if not connected:
-        b.row(InlineKeyboardButton(text="🔐 Login with Google", callback_data="auth:login"))
+    b.row(InlineKeyboardButton(text="👤 Contact ", url="https://t.me/Dreamm_ca"))
     return b.as_markup()
 
 

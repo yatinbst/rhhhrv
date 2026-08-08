@@ -6,7 +6,7 @@ import database as db
 import google_auth
 import drive_service
 from utils import human_bytes, safe_answer, user_message
-from bot.keyboards import login_keyboard, logout_confirm, main_menu
+from bot.keyboards import login_keyboard, logout_confirm
 
 router = Router()
 

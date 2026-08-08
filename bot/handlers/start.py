@@ -5,7 +5,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 from utils import human_bytes, safe_answer, user_message
-from bot.keyboards import main_menu, help_menu
+from bot.keyboards import help_menu, owner_keyboard
 import drive_service
 
 router = Router()
@@ -30,19 +30,27 @@ async def cmd_start(message: Message):
                 f"📧 {about['email']}\n"
                 f"💾 {human_bytes(about['usage_bytes'])} / "
                 f"{human_bytes(about['limit_bytes']) if about['limit_bytes'] else '∞'}\n\n"
-                "Choose an option:"
+                "Use /help to see available commands.\n"
+                "Owner: @Dreamm_ca"
             )
         else:
-            text = f"☁️ GOOGLE DRIVE BOT\n\nWelcome, {message.from_user.first_name}! 👋\n\n☁️ Drive: 🟢 Connected"
+            text = (
+                f"☁️ GOOGLE DRIVE BOT\n\nWelcome, {message.from_user.first_name}! 👋\n\n"
+                "☁️ Drive: 🟢 Connected\n\n"
+                "Use /help to see available commands.\n"
+                "Owner: @Dreamm_ca"
+            )
     else:
         text = (
             "☁️ GOOGLE DRIVE BOT\n\n"
             f"Welcome, {message.from_user.first_name}! 👋\n\n"
             "☁️ Drive: 🔴 Not connected\n\n"
-            "Login with Google to start uploading and cloning files."
+            "Login with Google to start uploading and cloning files.\n\n"
+            "Use /help to see available commands.\n"
+            "Owner: @Dreamm_ca"
         )
 
-    await message.answer(text, reply_markup=main_menu(connected))
+    await message.answer(text, reply_markup=owner_keyboard())
 
 
 @router.message(Command("help"))
@@ -94,7 +102,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
 async def cmd_status(message: Message):
     jobs = db.active_jobs_for_user(message.from_user.id)
     if not jobs:
-        await message.answer("✅ No active jobs right now.")
+        await message.answer("✅ No active jobs right now.\n\nUse /help to see available commands.")
         return
     lines = ["📊 ACTIVE JOBS\n"]
     for j in jobs:
@@ -102,7 +110,7 @@ async def cmd_status(message: Message):
             f"#{j['job_id']} {j['job_type'].upper()} — {j['status']} "
             f"({j.get('progress', 0):.0f}%)\n{j['source'][:60]}"
         )
-    await message.answer("\n\n".join(lines))
+    await message.answer("\n\n".join(lines) + "\n\nUse /help to see available commands.")
 
 
 @router.callback_query(F.data == "menu:account")
