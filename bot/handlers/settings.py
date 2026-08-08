@@ -1,3 +1,5 @@
+import html
+
 from aiogram import Router, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, CallbackQuery
@@ -15,9 +17,9 @@ def _settings_text(user: dict) -> str:
     return (
         "⚙️ SETTINGS\n\n"
         f"🔔 Notifications: {'ON' if user['notifications'] else 'OFF'}\n"
-        f"☁️ Default Drive: {user['default_drive']}\n"
-        f"📁 Default Folder: {user['default_folder_name']}\n"
-        f"🌐 Language: {user['language']}"
+        f"☁️ Default Drive: {html.escape(str(user['default_drive']))}\n"
+        f"📁 Default Folder: {html.escape(str(user['default_folder_name']))}\n"
+        f"🌐 Language: {html.escape(str(user['language']))}"
     )
 
 
@@ -66,7 +68,7 @@ async def receive_default_folder(message: Message, state: FSMContext):
     name = message.text.strip()
     db.update_user_field(message.from_user.id, "default_folder_name", name)
     db.update_user_field(message.from_user.id, "default_folder_id", None)  # re-resolve/create on next upload
-    await message.answer(f"✅ Default folder set to: {name}")
+    await message.answer(f"✅ Default folder set to: {html.escape(name)}")
 
 
 @router.callback_query(F.data == "settings:language")
@@ -92,20 +94,22 @@ async def cmd_notifications(message: Message, command: CommandObject):
 async def cmd_language(message: Message, command: CommandObject):
     if command.args:
         db.update_user_field(message.from_user.id, "language", command.args.strip())
-        await message.answer(f"🌐 Language set to: {command.args.strip()}")
+        await message.answer(f"🌐 Language set to: {html.escape(command.args.strip())}")
     else:
         user = db.get_user(message.from_user.id) or {}
-        await message.answer(f"🌐 Current language: {user.get('language', 'English')}\nUsage: /language <name>")
+        language = html.escape(str(user.get("language", "English")))
+        await message.answer(f"🌐 Current language: {language}\nUsage: /language <name>")
 
 
 @router.message(Command("timezone"))
 async def cmd_timezone(message: Message, command: CommandObject):
     if command.args:
         db.update_user_field(message.from_user.id, "timezone", command.args.strip())
-        await message.answer(f"🕒 Timezone set to: {command.args.strip()}")
+        await message.answer(f"🕒 Timezone set to: {html.escape(command.args.strip())}")
     else:
         user = db.get_user(message.from_user.id) or {}
-        await message.answer(f"🕒 Current timezone: {user.get('timezone', 'UTC')}\nUsage: /timezone <tz>")
+        timezone = html.escape(str(user.get("timezone", "UTC")))
+        await message.answer(f"🕒 Current timezone: {timezone}\nUsage: /timezone <tz>")
 
 
 @router.message(Command("defaultfolder"))
@@ -113,10 +117,11 @@ async def cmd_defaultfolder(message: Message, command: CommandObject):
     if command.args:
         db.update_user_field(message.from_user.id, "default_folder_name", command.args.strip())
         db.update_user_field(message.from_user.id, "default_folder_id", None)
-        await message.answer(f"📁 Default folder set to: {command.args.strip()}")
+        await message.answer(f"📁 Default folder set to: {html.escape(command.args.strip())}")
     else:
         user = db.get_user(message.from_user.id) or {}
-        await message.answer(f"📁 Current default folder: {user.get('default_folder_name', 'Gdrive HR')}\nUsage: /defaultfolder <name>")
+        folder_name = html.escape(str(user.get("default_folder_name", "Gdrive HR")))
+        await message.answer(f"📁 Current default folder: {folder_name}\nUsage: /defaultfolder <name>")
 
 
 @router.message(Command("defaultdrive"))
