@@ -65,7 +65,12 @@ async def safe_answer(callback, text: str | None = None, **kwargs) -> bool:
         await callback.answer(text, **kwargs)
         return True
     except TelegramBadRequest as exc:
-        if "query is too old" in str(exc).lower() or "query id is invalid" in str(exc).lower():
+        error_text = str(exc).lower()
+        if (
+            "query is too old" in error_text
+            or "query id is invalid" in error_text
+            or "already answered" in error_text
+        ):
             return False
         raise
 

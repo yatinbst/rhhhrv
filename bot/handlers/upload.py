@@ -86,8 +86,8 @@ async def cmd_upload(message: Message, state: FSMContext):
     await state.set_state(UploadStates.waiting_file)
     await message.answer(
         "📤 Send me the file (document, video, audio, or photo) you want to upload to Drive.\n"
-        f"It will go to your default folder: *{user.get('default_folder_name') or cfg.DEFAULT_UPLOAD_FOLDER_NAME}*",
-        parse_mode="Markdown",
+        f"It will go to your default folder: <b>{html.escape(user.get('default_folder_name') or cfg.DEFAULT_UPLOAD_FOLDER_NAME)}</b>",
+        parse_mode="HTML",
     )
 
 
@@ -204,7 +204,10 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
     job_id = db.create_job(message.from_user.id, "upload", filename, folder_id)
     db.update_job(job_id, status="running")
 
-    status_msg = await message.answer(f"⬇️ Downloading *{filename}*...", parse_mode="Markdown")
+    status_msg = await message.answer(
+        f"⬇️ Downloading <b>{html.escape(filename)}</b>...",
+        parse_mode="HTML",
+    )
 
     local_path = os.path.join(cfg.DOWNLOAD_DIR, f"{message.from_user.id}_{job_id}_{filename}")
     try:
@@ -212,7 +215,7 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
         await bot.download_file(file_info.file_path, destination=local_path)
     except Exception as e:
         db.update_job(job_id, status="error", error=str(e))
-        await status_msg.edit_text(f"❌ Download failed: {e}")
+        await status_msg.edit_text(f"❌ Download failed: {html.escape(str(e))}", parse_mode="HTML")
         if os.path.exists(local_path):
             os.remove(local_path)
         return
@@ -251,6 +254,7 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
             await status_msg.edit_text(
                 _duplicate_warning_text(filename, size, best, extra),
                 reply_markup=duplicate_confirm(str(job_id)),
+                parse_mode="HTML",
             )
             return
 
@@ -312,7 +316,8 @@ async def cb_duplicate_decision(call: CallbackQuery, state: FSMContext):
 
         await call.message.edit_text(
             "♻️ Using the existing file — nothing new was uploaded.\n\n"
-            f"📄 {html_link(candidate['name'], link)}\n📁 {html.escape(candidate['folder_path'])}"
+            f"📄 {html_link(candidate['name'], link)}\n📁 {html.escape(candidate['folder_path'])}",
+            parse_mode="HTML",
         )
         return
 

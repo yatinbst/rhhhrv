@@ -9,8 +9,6 @@ logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("gdrive_bot")
 
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
     BotCommand,
@@ -35,7 +33,7 @@ if not cfg.BOT_TOKEN:
         "Variables tab (get it from @BotFather on Telegram), then redeploy."
     )
 
-bot = Bot(token=cfg.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+bot = Bot(token=cfg.BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 dp.message.middleware(GateMiddleware())
 dp.callback_query.middleware(CallbackAckMiddleware())
