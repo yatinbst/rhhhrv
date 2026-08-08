@@ -437,5 +437,9 @@ async def cmd_search(message: Message, command: CommandObject):
 
 @router.callback_query(F.data == "menu:search")
 async def cb_menu_search(call: CallbackQuery):
+    if not db.get_google_token(call.from_user.id):
+        await call.message.answer("☁️ Connect your Google Drive first with /login.")
+        await safe_answer(call)
+        return
     await call.message.answer("🔍 Use: /search [query]")
     await safe_answer(call)

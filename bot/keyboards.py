@@ -5,10 +5,6 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 def main_menu(connected: bool) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="📤 Upload File", callback_data="menu:upload"),
-        InlineKeyboardButton(text="🔗 Clone Drive Link", callback_data="menu:clone"),
-    )
-    b.row(
         InlineKeyboardButton(text="📁 My Drive", callback_data="menu:drive"),
         InlineKeyboardButton(text="🔍 Search Drive", callback_data="menu:search"),
     )
@@ -16,10 +12,7 @@ def main_menu(connected: bool) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📊 My Stats", callback_data="menu:stats"),
         InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
     )
-    b.row(
-        InlineKeyboardButton(text="⚙️ Settings", callback_data="menu:settings"),
-        InlineKeyboardButton(text="❓ Help", callback_data="menu:help"),
-    )
+    b.row(InlineKeyboardButton(text="⚙️ Settings", callback_data="menu:settings"))
     if not connected:
         b.row(InlineKeyboardButton(text="🔐 Login with Google", callback_data="auth:login"))
     return b.as_markup()
@@ -67,10 +60,6 @@ def settings_menu() -> InlineKeyboardMarkup:
 
 def help_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
-    b.row(
-        InlineKeyboardButton(text="📤 Upload", callback_data="menu:upload"),
-        InlineKeyboardButton(text="🔗 Clone", callback_data="menu:clone"),
-    )
     b.row(
         InlineKeyboardButton(text="☁️ My Drive", callback_data="menu:drive"),
         InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
