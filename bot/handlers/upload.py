@@ -4,6 +4,7 @@ import time
 import html
 import asyncio
 import logging
+from contextlib import suppress
 
 from aiogram import Router, F, Bot
 from aiogram.filters import Command
@@ -13,7 +14,7 @@ from aiogram.fsm.context import FSMContext
 import database as db
 import drive_service
 from config import cfg
-from utils import html_link, human_bytes, progress_bar, safe_answer, safe_edit_text, user_message
+from utils import format_duration, html_link, human_bytes, progress_bar, safe_answer, safe_edit_text, user_message
 from bot.states import UploadStates
 from bot.keyboards import duplicate_confirm
 
@@ -124,6 +125,7 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
         )
         loop = asyncio.get_running_loop()
         last_update = [0.0]
+        started_at = time.monotonic()
 
         def progress(pct):
             db.update_job(job_id, progress=pct * 100)
@@ -134,7 +136,8 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
             update = safe_edit_text(
                 status_msg,
                 f"⬆️ Uploading {html.escape(filename)} to Drive...\n"
-                f"{progress_bar(int(pct * 100), 100)}",
+                f"{progress_bar(int(pct * 100), 100)}\n"
+                f"Elapsed: {format_duration(now - started_at)}",
                 parse_mode="HTML",
             )
             asyncio.run_coroutine_threadsafe(update, loop)
@@ -196,6 +199,22 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
     )
 
     local_path = os.path.join(cfg.DOWNLOAD_DIR, f"{message.from_user.id}_{job_id}_{filename}")
+    download_started = time.monotonic()
+
+    async def show_download_progress():
+        while True:
+            downloaded = os.path.getsize(local_path) if os.path.exists(local_path) else 0
+            percent = (downloaded / size * 100) if size else 0
+            await safe_edit_text(
+                status_msg,
+                f"⬇️ Downloading <b>{html.escape(filename)}</b>...\n"
+                f"{progress_bar(int(percent), 100)}\n"
+                f"Elapsed: {format_duration(time.monotonic() - download_started)}",
+                parse_mode="HTML",
+            )
+            await asyncio.sleep(1)
+
+    download_task = asyncio.create_task(show_download_progress())
     try:
         file_info = await bot.get_file(tg_file.file_id)
         await bot.download_file(file_info.file_path, destination=local_path)
@@ -205,12 +224,22 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
         if os.path.exists(local_path):
             os.remove(local_path)
         return
+    finally:
+        download_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await download_task
 
     # ---- Duplicate detection -------------------------------------------------
     if cfg.DUPLICATE_CHECK_ENABLED:
-        await status_msg.edit_text("🔎 Checking for duplicates on your Drive...")
+        check_started = time.monotonic()
+        await status_msg.edit_text(
+            "🔎 Checking for duplicates on your Drive...\nElapsed: 0s"
+        )
         try:
             md5 = await asyncio.to_thread(drive_service.local_md5, local_path)
+            await status_msg.edit_text(
+                f"🔎 Searching Drive metadata...\nElapsed: {format_duration(time.monotonic() - check_started)}"
+            )
 
             def search():
                 return drive_service.find_duplicates(

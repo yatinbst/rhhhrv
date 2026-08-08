@@ -1,5 +1,6 @@
 import json
 import asyncio
+import time
 
 from aiogram import Router, F
 from aiogram.filters import Command, CommandObject
@@ -8,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 import drive_service
-from utils import html_link, human_bytes, progress_bar, safe_answer, safe_edit_text, user_message
+from utils import format_duration, html_link, human_bytes, progress_bar, safe_answer, safe_edit_text, user_message
 from bot.keyboards import clone_confirm
 from bot.states import CloneStates
 
@@ -65,9 +66,23 @@ async def _process_clone_link(message: Message, user: dict, link: str):
 
     if is_folder:
         status = await message.answer("🔍 Scanning folder contents...")
+        scan_started = time.monotonic()
+        scan_loop = asyncio.get_running_loop()
+
+        def scan_progress(files, folders):
+            asyncio.run_coroutine_threadsafe(
+                safe_edit_text(
+                    status,
+                    f"🔍 Scanning folder contents...\n"
+                    f"📄 Files: {files}  📂 Folders: {folders}\n"
+                    f"Elapsed: {format_duration(time.monotonic() - scan_started)}",
+                ),
+                scan_loop,
+            )
+
         try:
             files, folders, total_bytes = await asyncio.to_thread(
-                drive_service.count_folder_contents, token, file_id
+                drive_service.count_folder_contents, token, file_id, scan_progress
             )
         except Exception as exc:
             db.update_job(job_id, status="error", error=str(exc))
@@ -110,6 +125,7 @@ async def cb_clone_go(call: CallbackQuery):
 
     def do_clone():
         last_update = {"t": 0}
+        started_at = time.monotonic()
 
         def progress(done, total):
             import time
@@ -118,10 +134,13 @@ async def cb_clone_go(call: CallbackQuery):
                 last_update["t"] = now
                 db.update_job(job_id, progress=(done / total * 100) if total else 0)
                 progress_text = progress_bar(done, total)
+                elapsed = time.monotonic() - started_at
+                eta = ((total - done) * elapsed / done) if done else 0
                 asyncio.run_coroutine_threadsafe(
                     safe_edit_text(
                         call.message,
-                        f"🚀 Cloning {progress_text}\nThis may take a while for large folders."
+                        f"🚀 Cloning {progress_text}\n"
+                        f"Elapsed: {format_duration(elapsed)}  ETA: {format_duration(eta)}"
                     ),
                     loop,
                 )

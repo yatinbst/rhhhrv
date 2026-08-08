@@ -206,9 +206,9 @@ async def cb_delete(call: CallbackQuery):
     if not token:
         await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
-    drive_service.delete(token, file_id)
-    db.log_action(call.from_user.id, "delete", file_id)
-    await call.message.edit_text("✅ Deleted.")
+    drive_service.trash(token, file_id)
+    db.log_action(call.from_user.id, "trash", file_id)
+    await call.message.edit_text("🗑️ Moved to Trash. Use /restore [file link or ID] to restore it.")
     await safe_answer(call)
 
 
@@ -376,6 +376,28 @@ async def cmd_delete(message: Message, command: CommandObject):
         await message.answer("❌ Couldn't parse that as a Drive link/ID.")
         return
     await message.answer("🗑️ Are you sure you want to delete this?", reply_markup=delete_confirm(file_id))
+
+
+@router.message(Command("restore"))
+async def cmd_restore(message: Message, command: CommandObject):
+    user = await _ensure_connected(message)
+    if not user:
+        return
+    if not command.args:
+        await message.answer("Usage: /restore [file or folder link]")
+        return
+    file_id = drive_service.extract_id_from_link(command.args.strip())
+    if not file_id:
+        await message.answer("❌ Couldn't parse that as a Drive file or folder link.")
+        return
+    token = json.loads(user["google_token"])
+    try:
+        await asyncio.to_thread(drive_service.restore, token, file_id)
+    except Exception as exc:
+        await message.answer(f"❌ Restore failed: {exc}")
+        return
+    db.log_action(message.from_user.id, "restore", file_id)
+    await message.answer("✅ Item restored from Trash.")
 
 
 @router.message(Command("search"))

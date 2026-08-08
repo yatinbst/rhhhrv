@@ -40,6 +40,17 @@ def human_bytes(n: int | float | None) -> str:
     return f"{n:.1f} PB"
 
 
+def format_duration(seconds: float) -> str:
+    seconds = max(0, int(seconds))
+    minutes, remaining = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {remaining:02d}s"
+    return f"{remaining}s"
+
+
 def html_link(label: str, url: str | None) -> str:
     """Return a Telegram HTML link with both label and URL safely escaped."""
     safe_label = html.escape(str(label), quote=False)

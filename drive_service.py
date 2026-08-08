@@ -109,14 +109,24 @@ def rename(user_token: dict, file_id: str, new_name: str) -> dict:
         return drive.files().update(fileId=file_id, body={"name": new_name}, fields="id, name").execute()
 
 
-def delete(user_token: dict, file_id: str):
-    # FIX #5
+def trash(user_token: dict, file_id: str):
+    """Move a Drive item to Trash so it can be restored later."""
     try:
         drive = get_drive(user_token)
-        drive.files().delete(fileId=file_id).execute()
+        drive.files().update(fileId=file_id, body={"trashed": True}).execute()
     except (HttpError, RefreshError) as e:
         reason = getattr(e, "reason", None) or str(e)
-        raise RuntimeError(f"Drive API error deleting file '{file_id}': {reason}") from e
+        raise RuntimeError(f"Drive API error moving file '{file_id}' to Trash: {reason}") from e
+
+
+def restore(user_token: dict, file_id: str):
+    """Restore a Drive item from Trash."""
+    try:
+        drive = get_drive(user_token)
+        drive.files().update(fileId=file_id, body={"trashed": False}).execute()
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error restoring file '{file_id}': {reason}") from e
 
 
 ROLE_LABELS = {"reader": "👁️ Viewer", "commenter": "💬 Commenter", "writer": "✏️ Editor"}
@@ -336,7 +346,7 @@ def get_file_meta(user_token: dict, file_id: str) -> dict:
         ).execute()
 
 
-def count_folder_contents(user_token: dict, folder_id: str) -> tuple[int, int, int]:
+def count_folder_contents(user_token: dict, folder_id: str, progress_cb=None) -> tuple[int, int, int]:
     """Returns (file_count, folder_count, total_bytes) recursively."""
     with _handle_drive_errors(f"counting folder contents for '{folder_id}'"):
         drive = get_drive(user_token)
@@ -362,6 +372,8 @@ def count_folder_contents(user_token: dict, folder_id: str) -> tuple[int, int, i
                 page_token = resp.get("nextPageToken")
                 if not page_token:
                     break
+            if progress_cb:
+                progress_cb(files, folders)
         return files, folders, total
 
 

@@ -105,7 +105,8 @@ docker run --rm -p 8080:8080 --env-file .env gdrive-bot
    user's Drive (runs in a thread so the bot stays responsive). Use
    `/cancelclone` to cancel active clone jobs.
 - **Drive browser**: `/drive` (inline folder navigation), `/mkdir`, `/rename`,
-  `/copy` (files or folders into `HR Gdrive`), `/delete`, `/link`,
+   `/copy` (files or folders into `HR Gdrive`), `/delete` (moves to Trash),
+   `/restore`, `/link`,
   `/search`.
 - **Stats**: `/stats`, `/usage`, `/limits`, `/plan`.
 - **Admin** (restricted to `ADMIN_IDS`): `/admin`, `/users`, `/user <id>`,

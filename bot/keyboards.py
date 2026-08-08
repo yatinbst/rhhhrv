@@ -118,7 +118,7 @@ def share_menu(file_id: str, status: dict) -> InlineKeyboardMarkup:
 def delete_confirm(file_id: str) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
-        InlineKeyboardButton(text="✅ Delete", callback_data=f"drive:delete:{file_id}"),
+        InlineKeyboardButton(text="🗑️ Move to Trash", callback_data=f"drive:delete:{file_id}"),
         InlineKeyboardButton(text="❌ Cancel", callback_data=f"drive:cancel:{file_id}"),
     )
     return b.as_markup()

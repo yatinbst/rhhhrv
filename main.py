@@ -56,6 +56,7 @@ DEFAULT_COMMANDS = [
     BotCommand(command="rename", description="Rename a file/folder"),
     BotCommand(command="copy", description="Copy a file or folder to HR Gdrive"),
     BotCommand(command="delete", description="Delete a file/folder"),
+    BotCommand(command="restore", description="Restore a trashed file/folder"),
     BotCommand(command="link", description="Get a shareable link"),
     BotCommand(command="search", description="Search your Drive"),
     BotCommand(command="stats", description="My usage statistics"),
