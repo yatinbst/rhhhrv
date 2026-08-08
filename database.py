@@ -236,15 +236,6 @@ def all_active_jobs():
         return [dict(r) for r in rows]
 
 
-def job_history_for_user(user_id: int, limit=10):
-    with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM jobs WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
 # ---------- History / logs ----------
 
 def log_action(user_id: int, action: str, detail: str = ""):

@@ -163,34 +163,6 @@ async def cmd_mkdir(message: Message, command: CommandObject):
     await message.answer(f"✅ Folder created: {created['name']}")
 
 
-@router.message(Command("files"))
-async def cmd_files(message: Message):
-    user = await _ensure_connected(message)
-    if not user:
-        return
-    token = json.loads(user["google_token"])
-    items = drive_service.list_children(token, "root", files_only=True)
-    if not items:
-        await message.answer("📄 No files found in root.")
-        return
-    lines = [f"📄 {f['name']} — {human_bytes(int(f.get('size', 0) or 0))}" for f in items[:50]]
-    await message.answer("📄 MY FILES\n\n" + "\n".join(lines))
-
-
-@router.message(Command("folders"))
-async def cmd_folders(message: Message):
-    user = await _ensure_connected(message)
-    if not user:
-        return
-    token = json.loads(user["google_token"])
-    items = drive_service.list_children(token, "root", folders_only=True)
-    if not items:
-        await message.answer("📁 No folders found in root.")
-        return
-    lines = [f"📁 {f['name']}" for f in items[:50]]
-    await message.answer("📁 MY FOLDERS\n\n" + "\n".join(lines))
-
-
 # ---------- rename / move / copy / delete / link (triggered from file_actions keyboard) ----------
 
 @router.callback_query(F.data.startswith("drive:rename:"))
@@ -218,57 +190,6 @@ async def receive_rename(message: Message, state: FSMContext):
         f"✅ Renamed to: {html_link(result['name'], link)}",
         parse_mode="HTML",
     )
-
-
-@router.callback_query(F.data.startswith("drive:move:"))
-async def cb_move_start(call: CallbackQuery, state: FSMContext):
-    file_id = call.data.split(":")[-1]
-    await state.set_state(DriveStates.waiting_move_target)
-    await state.update_data(move_id=file_id)
-    await call.message.answer("➡️ Send the destination folder link/ID.")
-    await safe_answer(call)
-
-
-@router.message(DriveStates.waiting_move_target)
-async def receive_move_target(message: Message, state: FSMContext):
-    data = await state.get_data()
-    file_id = data.get("move_id")
-    await state.clear()
-    user = await _ensure_connected(message)
-    if not user:
-        return
-    target = drive_service.extract_id_from_link((message.text or "").strip())
-    if not target:
-        await message.answer("❌ Invalid folder link/ID.")
-        return
-    token = json.loads(user["google_token"])
-    drive_service.move(token, file_id, target)
-    db.log_action(message.from_user.id, "move", file_id)
-    await message.answer("✅ Moved successfully.")
-
-
-@router.callback_query(F.data.startswith("drive:copy:"))
-async def cb_copy_start(call: CallbackQuery, state: FSMContext):
-    file_id = call.data.split(":")[-1]
-    await state.set_state(DriveStates.waiting_copy_target)
-    await state.update_data(copy_id=file_id)
-    await call.message.answer("📋 Send the destination folder link/ID (or send /cancel to copy in place).")
-    await safe_answer(call)
-
-
-@router.message(DriveStates.waiting_copy_target)
-async def receive_copy_target(message: Message, state: FSMContext):
-    data = await state.get_data()
-    file_id = data.get("copy_id")
-    await state.clear()
-    user = await _ensure_connected(message)
-    if not user:
-        return
-    target = drive_service.extract_id_from_link((message.text or "").strip())
-    token = json.loads(user["google_token"])
-    result = drive_service.copy(token, file_id, new_parent_id=target)
-    db.log_action(message.from_user.id, "copy", result["name"])
-    await message.answer(f"✅ Copied: {result['name']}")
 
 
 @router.callback_query(F.data.startswith("drive:delete_confirm:"))
@@ -400,38 +321,46 @@ async def cmd_rename(message: Message, command: CommandObject, state: FSMContext
     await message.answer("✏️ Send the new name.")
 
 
-@router.message(Command("move"))
-async def cmd_move(message: Message, command: CommandObject, state: FSMContext):
-    user = await _ensure_connected(message)
-    if not user:
-        return
-    if not command.args:
-        await message.answer("Usage: /move [file link or ID]\nThen send the destination folder when asked.")
-        return
-    file_id = drive_service.extract_id_from_link(command.args.strip())
-    if not file_id:
-        await message.answer("❌ Couldn't parse that as a Drive link/ID.")
-        return
-    await state.set_state(DriveStates.waiting_move_target)
-    await state.update_data(move_id=file_id)
-    await message.answer("➡️ Send the destination folder link/ID.")
-
-
 @router.message(Command("copy"))
-async def cmd_copy(message: Message, command: CommandObject, state: FSMContext):
+async def cmd_copy(message: Message, command: CommandObject):
     user = await _ensure_connected(message)
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /copy [file link or ID]\nThen send the destination folder when asked.")
+        await message.answer("Usage: /copy [file or folder link]")
         return
-    file_id = drive_service.extract_id_from_link(command.args.strip())
-    if not file_id:
-        await message.answer("❌ Couldn't parse that as a Drive link/ID.")
+
+    source_id = drive_service.extract_id_from_link(command.args.strip())
+    if not source_id:
+        await message.answer("❌ Couldn't parse that as a Drive file or folder link.")
         return
-    await state.set_state(DriveStates.waiting_copy_target)
-    await state.update_data(copy_id=file_id)
-    await message.answer("📋 Send the destination folder link/ID (or /cancel to copy in place).")
+
+    token = json.loads(user["google_token"])
+    try:
+        meta = await asyncio.to_thread(drive_service.get_file_meta, token, source_id)
+        destination_id = await asyncio.to_thread(
+            drive_service.ensure_default_folder, user, token
+        )
+        if meta["mimeType"] == FOLDER_MIME:
+            result = await asyncio.to_thread(
+                drive_service.clone_item, token, source_id, destination_id
+            )
+            icon = "📁"
+        else:
+            result = await asyncio.to_thread(
+                drive_service.copy, token, source_id, destination_id
+            )
+            icon = "📄"
+        link = await asyncio.to_thread(drive_service.get_file_link, token, result["id"])
+    except Exception as exc:
+        await message.answer(f"❌ Copy failed: {exc}")
+        return
+
+    db.log_action(message.from_user.id, "copy", result.get("name", source_id))
+    await message.answer(
+        f"✅ Copied to HR Gdrive\n\n{icon} {html_link(result.get('name', 'Copied item'), link)}",
+        parse_mode="HTML",
+    )
 
 
 @router.message(Command("delete"))

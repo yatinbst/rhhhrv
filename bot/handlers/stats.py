@@ -11,23 +11,6 @@ from utils import human_bytes, safe_answer, user_message
 router = Router()
 
 
-@router.message(Command("profile"))
-async def cmd_profile(message: Message):
-    user = db.get_user(message.from_user.id)
-    if not user:
-        db.upsert_user(message.from_user.id, message.from_user.username)
-        user = db.get_user(message.from_user.id)
-    joined = time.strftime("%d %b %Y", time.localtime(user["created_at"])) if user["created_at"] else "n/a"
-    text = (
-        "👤 TELEGRAM PROFILE\n\n"
-        f"ID: {user['user_id']}\n"
-        f"Username: @{user['username'] or 'n/a'}\n"
-        f"Plan: {'⭐ Premium' if user['is_premium'] else '🆓 Free'}\n"
-        f"Member since: {joined}"
-    )
-    await message.answer(text)
-
-
 @router.message(Command("stats"))
 async def cmd_stats(message: Message):
     user = db.get_user(message.from_user.id)

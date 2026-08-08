@@ -12,7 +12,6 @@ def main_menu(connected: bool) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="📊 My Stats", callback_data="menu:stats"),
         InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
     )
-    b.row(InlineKeyboardButton(text="⚙️ Settings", callback_data="menu:settings"))
     if not connected:
         b.row(InlineKeyboardButton(text="🔐 Login with Google", callback_data="auth:login"))
     return b.as_markup()
@@ -49,22 +48,12 @@ def duplicate_confirm(job_id: str) -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def settings_menu() -> InlineKeyboardMarkup:
-    b = InlineKeyboardBuilder()
-    b.row(InlineKeyboardButton(text="🔔 Notifications", callback_data="settings:notifications"))
-    b.row(InlineKeyboardButton(text="☁️ Default Drive", callback_data="settings:default_drive"))
-    b.row(InlineKeyboardButton(text="📁 Default Folder", callback_data="settings:default_folder"))
-    b.row(InlineKeyboardButton(text="🌐 Language", callback_data="settings:language"))
-    return b.as_markup()
-
-
 def help_menu() -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     b.row(
         InlineKeyboardButton(text="☁️ My Drive", callback_data="menu:drive"),
         InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
     )
-    b.row(InlineKeyboardButton(text="⚙️ Settings", callback_data="menu:settings"))
     return b.as_markup()
 
 

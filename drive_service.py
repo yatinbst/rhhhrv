@@ -76,31 +76,37 @@ def mkdir(user_token: dict, name: str, parent_id: str = "root") -> dict:
         raise RuntimeError(f"Drive API error creating folder '{name}': {reason}") from e
 
 
+def ensure_default_folder(user: dict, user_token: dict) -> str:
+    """Return the configured default folder, creating it when necessary."""
+    from config import cfg
+    import database as db
+
+    if user.get("default_folder_id"):
+        return user["default_folder_id"]
+
+    folder_name = cfg.DEFAULT_UPLOAD_FOLDER_NAME
+    existing = list_children(user_token, "root", folders_only=True)
+    match = next((folder for folder in existing if folder["name"] == folder_name), None)
+    folder_id = match["id"] if match else mkdir(user_token, folder_name, "root")["id"]
+    db.update_user_field(user["user_id"], "default_folder_id", folder_id)
+    db.update_user_field(user["user_id"], "default_folder_name", folder_name)
+    return folder_id
+
+
+def copy(user_token: dict, file_id: str, new_parent_id: str, new_name: str | None = None) -> dict:
+    """Copy a single Drive file into a destination folder."""
+    with _handle_drive_errors(f"copying file '{file_id}'"):
+        drive = get_drive(user_token)
+        body = {"parents": [new_parent_id]}
+        if new_name:
+            body["name"] = new_name
+        return drive.files().copy(fileId=file_id, body=body, fields="id, name").execute()
+
+
 def rename(user_token: dict, file_id: str, new_name: str) -> dict:
     with _handle_drive_errors(f"renaming file '{file_id}'"):
         drive = get_drive(user_token)
         return drive.files().update(fileId=file_id, body={"name": new_name}, fields="id, name").execute()
-
-
-def move(user_token: dict, file_id: str, new_parent_id: str) -> dict:
-    with _handle_drive_errors(f"moving file '{file_id}'"):
-        drive = get_drive(user_token)
-        f = drive.files().get(fileId=file_id, fields="parents").execute()
-        old_parents = ",".join(f.get("parents", []))
-        return drive.files().update(
-            fileId=file_id, addParents=new_parent_id, removeParents=old_parents, fields="id, parents"
-        ).execute()
-
-
-def copy(user_token: dict, file_id: str, new_parent_id: str = None, new_name: str = None) -> dict:
-    with _handle_drive_errors(f"copying file '{file_id}'"):
-        drive = get_drive(user_token)
-        body = {}
-        if new_parent_id:
-            body["parents"] = [new_parent_id]
-        if new_name:
-            body["name"] = new_name
-        return drive.files().copy(fileId=file_id, body=body, fields="id, name").execute()
 
 
 def delete(user_token: dict, file_id: str):

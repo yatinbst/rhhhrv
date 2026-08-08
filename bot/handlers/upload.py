@@ -61,21 +61,7 @@ async def _ensure_connected(message: Message) -> dict | None:
 
 
 async def _ensure_default_folder(user: dict, token: dict) -> str:
-    """Get or create the user's default upload folder (e.g. 'Gdrive HR')."""
-    if user.get("default_folder_id"):
-        return user["default_folder_id"]
-
-    folder_name = user.get("default_folder_name") or cfg.DEFAULT_UPLOAD_FOLDER_NAME
-    existing = drive_service.list_children(token, "root", folders_only=True)
-    match = next((f for f in existing if f["name"] == folder_name), None)
-    if match:
-        folder_id = match["id"]
-    else:
-        created = drive_service.mkdir(token, folder_name, "root")
-        folder_id = created["id"]
-    db.update_user_field(user["user_id"], "default_folder_id", folder_id)
-    db.update_user_field(user["user_id"], "default_folder_name", folder_name)
-    return folder_id
+    return await asyncio.to_thread(drive_service.ensure_default_folder, user, token)
 
 
 @router.message(Command("upload"))
@@ -86,7 +72,7 @@ async def cmd_upload(message: Message, state: FSMContext):
     await state.set_state(UploadStates.waiting_file)
     await message.answer(
         "📤 Send me the file (document, video, audio, or photo) you want to upload to Drive.\n"
-        f"It will go to your default folder: <b>{html.escape(user.get('default_folder_name') or cfg.DEFAULT_UPLOAD_FOLDER_NAME)}</b>",
+        f"It will go to your default folder: <b>{html.escape(cfg.DEFAULT_UPLOAD_FOLDER_NAME)}</b>",
         parse_mode="HTML",
     )
 
@@ -341,28 +327,3 @@ async def cb_duplicate_decision(call: CallbackQuery, state: FSMContext):
             pending["filename"], pending["size"], pending["folder_id"], pending["user_id"],
         )
         return
-
-
-@router.message(Command("queue"))
-async def cmd_queue(message: Message):
-    jobs = db.active_jobs_for_user(message.from_user.id)
-    if not jobs:
-        await message.answer("📭 Your upload queue is empty.")
-        return
-    lines = ["📤 UPLOAD QUEUE\n"]
-    for j in jobs:
-        lines.append(f"#{j['job_id']} — {j['status']} ({j.get('progress', 0):.0f}%) — {j['source'][:50]}")
-    await message.answer("\n".join(lines))
-
-
-@router.message(Command("history"))
-async def cmd_history(message: Message):
-    jobs = db.job_history_for_user(message.from_user.id, limit=10)
-    if not jobs:
-        await message.answer("📭 No upload/clone history yet.")
-        return
-    lines = ["📜 HISTORY\n"]
-    for j in jobs:
-        icon = "📤" if j["job_type"] == "upload" else "🔗"
-        lines.append(f"{icon} #{j['job_id']} {j['status']} — {j['source'][:50]}")
-    await message.answer("\n".join(lines))

@@ -91,7 +91,7 @@ docker run --rm -p 8080:8080 --env-file .env gdrive-bot
 
 - **Auth**: `/login`, `/logout`, `/me` — full OAuth2 flow, refresh-token based
   so users don't need to re-login.
-- **Upload**: `/upload` (send a file after), `/queue`, `/status`, `/history`
+- **Upload**: `/upload` (send a file after), `/status`
   — real resumable upload to Drive into a `Gdrive HR` folder (auto-created).
   - **Duplicate detection**: before uploading, the bot hashes the incoming
     file (MD5) and searches the user's whole Drive by name/size/hash. If a
@@ -102,13 +102,12 @@ docker run --rm -p 8080:8080 --env-file .env gdrive-bot
     match is flagged as "possible". Toggle with `DUPLICATE_CHECK_ENABLED`.
 - **Clone**: `/clone <drive_link>` — parses file/folder ID from any Drive
   URL, previews file/folder counts, recursively copies folders into the
-  user's Drive (runs in a thread so the bot stays responsive).
-- **Drive browser**: `/drive` (inline folder navigation), `/files`,
-  `/folders`, `/mkdir`, `/rename`, `/move`, `/copy`, `/delete`, `/link`,
+   user's Drive (runs in a thread so the bot stays responsive). Use
+   `/cancelclone` to cancel active clone jobs.
+- **Drive browser**: `/drive` (inline folder navigation), `/mkdir`, `/rename`,
+  `/copy` (files or folders into `HR Gdrive`), `/delete`, `/link`,
   `/search`.
-- **Settings**: `/settings`, `/notifications`, `/language`, `/timezone`,
-  `/defaultfolder`, `/defaultdrive`.
-- **Stats**: `/profile`, `/stats`, `/usage`, `/limits`, `/plan`.
+- **Stats**: `/stats`, `/usage`, `/limits`, `/plan`.
 - **Admin** (restricted to `ADMIN_IDS`): `/admin`, `/users`, `/user <id>`,
   `/ban`, `/unban`, `/premium`, `/remove_premium`, `/broadcast`, `/drives`,
   `/driveinfo <id>`, `/jobs`, `/logs`, `/adminstats`, `/bot_on`, `/bot_off`,

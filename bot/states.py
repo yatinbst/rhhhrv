@@ -13,13 +13,7 @@ class CloneStates(StatesGroup):
 class DriveStates(StatesGroup):
     waiting_mkdir_name = State()
     waiting_rename = State()
-    waiting_move_target = State()
-    waiting_copy_target = State()
     browsing = State()
-
-
-class SettingsStates(StatesGroup):
-    waiting_default_folder = State()
 
 
 class AdminStates(StatesGroup):
