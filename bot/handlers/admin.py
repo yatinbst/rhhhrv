@@ -28,12 +28,12 @@ async def cmd_admin(message: Message):
         f"Total users: {db.count_users()}\n"
         f"Active jobs: {len(db.all_active_jobs())}\n\n"
         "/users — user list\n"
-        "/user <id> — user details\n"
-        "/ban <id> / /unban <id>\n"
-        "/premium <id> / /remove_premium <id>\n"
+        "/user [id] — user details\n"
+        "/ban [id] / /unban [id]\n"
+        "/premium [id] / /remove_premium [id]\n"
         "/broadcast — message all users\n"
         "/drives — connected Drive accounts\n"
-        "/driveinfo <id> — a user's Drive info\n"
+        "/driveinfo [id] — a user's Drive info\n"
         "/jobs — all active jobs\n"
         "/logs — recent activity\n"
         "/bot_on / /bot_off\n"
@@ -64,7 +64,7 @@ async def cmd_users(message: Message):
 @router.message(Command("user"))
 async def cmd_user(message: Message, command: CommandObject):
     if not command.args:
-        await message.answer("Usage: /user <telegram_id>")
+        await message.answer("Usage: /user [telegram_id]")
         return
     try:
         uid = int(command.args.strip())
@@ -90,9 +90,13 @@ async def cmd_user(message: Message, command: CommandObject):
 @router.message(Command("ban"))
 async def cmd_ban(message: Message, command: CommandObject):
     if not command.args:
-        await message.answer("Usage: /ban <telegram_id>")
+        await message.answer("Usage: /ban [telegram_id]")
         return
-    uid = int(command.args.strip())
+    try:
+        uid = int(command.args.strip())
+    except ValueError:
+        await message.answer("Invalid Telegram ID.")
+        return
     db.update_user_field(uid, "is_banned", 1)
     await message.answer(f"🚫 User {uid} banned.")
 
@@ -100,9 +104,13 @@ async def cmd_ban(message: Message, command: CommandObject):
 @router.message(Command("unban"))
 async def cmd_unban(message: Message, command: CommandObject):
     if not command.args:
-        await message.answer("Usage: /unban <telegram_id>")
+        await message.answer("Usage: /unban [telegram_id]")
         return
-    uid = int(command.args.strip())
+    try:
+        uid = int(command.args.strip())
+    except ValueError:
+        await message.answer("Invalid Telegram ID.")
+        return
     db.update_user_field(uid, "is_banned", 0)
     await message.answer(f"✅ User {uid} unbanned.")
 
@@ -110,9 +118,13 @@ async def cmd_unban(message: Message, command: CommandObject):
 @router.message(Command("premium"))
 async def cmd_premium(message: Message, command: CommandObject):
     if not command.args:
-        await message.answer("Usage: /premium <telegram_id>")
+        await message.answer("Usage: /premium [telegram_id]")
         return
-    uid = int(command.args.strip())
+    try:
+        uid = int(command.args.strip())
+    except ValueError:
+        await message.answer("Invalid Telegram ID.")
+        return
     db.update_user_field(uid, "is_premium", 1)
     await message.answer(f"⭐ User {uid} upgraded to Premium.")
 
@@ -120,9 +132,13 @@ async def cmd_premium(message: Message, command: CommandObject):
 @router.message(Command("remove_premium"))
 async def cmd_remove_premium(message: Message, command: CommandObject):
     if not command.args:
-        await message.answer("Usage: /remove_premium <telegram_id>")
+        await message.answer("Usage: /remove_premium [telegram_id]")
         return
-    uid = int(command.args.strip())
+    try:
+        uid = int(command.args.strip())
+    except ValueError:
+        await message.answer("Invalid Telegram ID.")
+        return
     db.update_user_field(uid, "is_premium", 0)
     await message.answer(f"🆓 User {uid} downgraded to Free.")
 
@@ -179,9 +195,13 @@ async def cmd_driveinfo(message: Message, command: CommandObject):
     import json
     import drive_service
     if not command.args:
-        await message.answer("Usage: /driveinfo <telegram_id>")
+        await message.answer("Usage: /driveinfo [telegram_id]")
         return
-    uid = int(command.args.strip())
+    try:
+        uid = int(command.args.strip())
+    except ValueError:
+        await message.answer("Invalid Telegram ID.")
+        return
     u = db.get_user(uid)
     if not u or not u.get("google_token"):
         await message.answer("That user has no connected Drive.")

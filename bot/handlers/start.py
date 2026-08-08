@@ -54,7 +54,7 @@ async def cmd_help(message: Message):
         "/queue — Upload queue\n"
         "/history — Upload history\n\n"
         "🔗 CLONE\n"
-        "/clone <link> — Clone Drive link\n\n"
+        "/clone [link] — Clone Drive link\n\n"
         "☁️ DRIVE\n"
         "/drive — Browse Drive\n"
         "/files — My files\n"

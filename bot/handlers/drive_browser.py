@@ -114,7 +114,7 @@ async def cmd_mkdir(message: Message, command: CommandObject):
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /mkdir <folder name>")
+        await message.answer("Usage: /mkdir [folder name]")
         return
     token = json.loads(user["google_token"])
     parent_id = user.get("default_folder_id") or "root"
@@ -332,7 +332,7 @@ async def cmd_link(message: Message, command: CommandObject):
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /link <file link or ID>")
+        await message.answer("Usage: /link [file link or ID]")
         return
     file_id = drive_service.extract_id_from_link(command.args.strip())
     if not file_id:
@@ -349,7 +349,7 @@ async def cmd_rename(message: Message, command: CommandObject, state: FSMContext
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /rename <file link or ID>\nThen send the new name when asked.")
+        await message.answer("Usage: /rename [file link or ID]\nThen send the new name when asked.")
         return
     file_id = drive_service.extract_id_from_link(command.args.strip())
     if not file_id:
@@ -366,7 +366,7 @@ async def cmd_move(message: Message, command: CommandObject, state: FSMContext):
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /move <file link or ID>\nThen send the destination folder when asked.")
+        await message.answer("Usage: /move [file link or ID]\nThen send the destination folder when asked.")
         return
     file_id = drive_service.extract_id_from_link(command.args.strip())
     if not file_id:
@@ -383,7 +383,7 @@ async def cmd_copy(message: Message, command: CommandObject, state: FSMContext):
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /copy <file link or ID>\nThen send the destination folder when asked.")
+        await message.answer("Usage: /copy [file link or ID]\nThen send the destination folder when asked.")
         return
     file_id = drive_service.extract_id_from_link(command.args.strip())
     if not file_id:
@@ -400,7 +400,7 @@ async def cmd_delete(message: Message, command: CommandObject):
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /delete <file link or ID>")
+        await message.answer("Usage: /delete [file link or ID]")
         return
     file_id = drive_service.extract_id_from_link(command.args.strip())
     if not file_id:
@@ -415,7 +415,7 @@ async def cmd_search(message: Message, command: CommandObject):
     if not user:
         return
     if not command.args:
-        await message.answer("Usage: /search <query>")
+        await message.answer("Usage: /search [query]")
         return
     token = json.loads(user["google_token"])
     drive = drive_service.get_drive(token)
@@ -437,5 +437,5 @@ async def cmd_search(message: Message, command: CommandObject):
 
 @router.callback_query(F.data == "menu:search")
 async def cb_menu_search(call: CallbackQuery):
-    await call.message.answer("🔍 Use: /search <query>")
+    await call.message.answer("🔍 Use: /search [query]")
     await safe_answer(call)

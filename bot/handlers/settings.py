@@ -98,7 +98,7 @@ async def cmd_language(message: Message, command: CommandObject):
     else:
         user = db.get_user(message.from_user.id) or {}
         language = html.escape(str(user.get("language", "English")))
-        await message.answer(f"🌐 Current language: {language}\nUsage: /language <name>")
+        await message.answer(f"🌐 Current language: {language}\nUsage: /language [name]")
 
 
 @router.message(Command("timezone"))
@@ -109,7 +109,7 @@ async def cmd_timezone(message: Message, command: CommandObject):
     else:
         user = db.get_user(message.from_user.id) or {}
         timezone = html.escape(str(user.get("timezone", "UTC")))
-        await message.answer(f"🕒 Current timezone: {timezone}\nUsage: /timezone <tz>")
+        await message.answer(f"🕒 Current timezone: {timezone}\nUsage: /timezone [tz]")
 
 
 @router.message(Command("defaultfolder"))
@@ -121,7 +121,7 @@ async def cmd_defaultfolder(message: Message, command: CommandObject):
     else:
         user = db.get_user(message.from_user.id) or {}
         folder_name = html.escape(str(user.get("default_folder_name", "Gdrive HR")))
-        await message.answer(f"📁 Current default folder: {folder_name}\nUsage: /defaultfolder <name>")
+        await message.answer(f"📁 Current default folder: {folder_name}\nUsage: /defaultfolder [name]")
 
 
 @router.message(Command("defaultdrive"))
