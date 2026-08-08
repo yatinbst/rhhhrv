@@ -1,0 +1,142 @@
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+
+
+def main_menu(connected: bool) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="📤 Upload File", callback_data="menu:upload"),
+        InlineKeyboardButton(text="🔗 Clone Drive Link", callback_data="menu:clone"),
+    )
+    b.row(
+        InlineKeyboardButton(text="📁 My Drive", callback_data="menu:drive"),
+        InlineKeyboardButton(text="🔍 Search Drive", callback_data="menu:search"),
+    )
+    b.row(
+        InlineKeyboardButton(text="📊 My Stats", callback_data="menu:stats"),
+        InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
+    )
+    b.row(
+        InlineKeyboardButton(text="⚙️ Settings", callback_data="menu:settings"),
+        InlineKeyboardButton(text="❓ Help", callback_data="menu:help"),
+    )
+    if not connected:
+        b.row(InlineKeyboardButton(text="🔐 Login with Google", callback_data="auth:login"))
+    return b.as_markup()
+
+
+def login_keyboard(auth_url: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="🔐 Login with Google", url=auth_url))
+    return b.as_markup()
+
+
+def logout_confirm() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="✅ Logout", callback_data="auth:logout_confirm"),
+        InlineKeyboardButton(text="❌ Cancel", callback_data="auth:logout_cancel"),
+    )
+    return b.as_markup()
+
+
+def clone_confirm(job_key: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="🚀 Clone", callback_data=f"clone:go:{job_key}"))
+    b.row(InlineKeyboardButton(text="📁 Select Destination", callback_data=f"clone:dest:{job_key}"))
+    b.row(InlineKeyboardButton(text="❌ Cancel", callback_data=f"clone:cancel:{job_key}"))
+    return b.as_markup()
+
+
+def duplicate_confirm(job_id: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="♻️ Use Existing", callback_data=f"dup:use:{job_id}"))
+    b.row(InlineKeyboardButton(text="📤 Upload Anyway", callback_data=f"dup:upload:{job_id}"))
+    b.row(InlineKeyboardButton(text="❌ Cancel", callback_data=f"dup:cancel:{job_id}"))
+    return b.as_markup()
+
+
+def settings_menu() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(InlineKeyboardButton(text="🔔 Notifications", callback_data="settings:notifications"))
+    b.row(InlineKeyboardButton(text="☁️ Default Drive", callback_data="settings:default_drive"))
+    b.row(InlineKeyboardButton(text="📁 Default Folder", callback_data="settings:default_folder"))
+    b.row(InlineKeyboardButton(text="🌐 Language", callback_data="settings:language"))
+    return b.as_markup()
+
+
+def help_menu() -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="📤 Upload", callback_data="menu:upload"),
+        InlineKeyboardButton(text="🔗 Clone", callback_data="menu:clone"),
+    )
+    b.row(
+        InlineKeyboardButton(text="☁️ My Drive", callback_data="menu:drive"),
+        InlineKeyboardButton(text="👤 My Account", callback_data="menu:account"),
+    )
+    b.row(InlineKeyboardButton(text="⚙️ Settings", callback_data="menu:settings"))
+    return b.as_markup()
+
+
+def drive_browser(items: list, folder_id: str, parent_id: str | None) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    for item in items:
+        icon = "📁" if item["mimeType"] == "application/vnd.google-apps.folder" else "📄"
+        b.row(InlineKeyboardButton(text=f"{icon} {item['name']}", callback_data=f"drive:open:{item['id']}"))
+    nav = []
+    if parent_id:
+        nav.append(InlineKeyboardButton(text="⬅️ Back", callback_data=f"drive:open:{parent_id}"))
+    nav.append(InlineKeyboardButton(text="➕ New Folder", callback_data=f"drive:mkdir:{folder_id}"))
+    b.row(*nav)
+    if folder_id != "root":
+        b.row(InlineKeyboardButton(text="🔒 Share This Folder", callback_data=f"drive:share:{folder_id}"))
+    return b.as_markup()
+
+
+def file_actions(file_id: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="✏️ Rename", callback_data=f"drive:rename:{file_id}"),
+        InlineKeyboardButton(text="🔒 Sharing", callback_data=f"drive:share:{file_id}"),
+    )
+    b.row(
+        InlineKeyboardButton(text="📋 Copy", callback_data=f"drive:copy:{file_id}"),
+        InlineKeyboardButton(text="➡️ Move", callback_data=f"drive:move:{file_id}"),
+    )
+    b.row(InlineKeyboardButton(text="🗑️ Delete", callback_data=f"drive:delete_confirm:{file_id}"))
+    return b.as_markup()
+
+
+def share_menu(file_id: str, status: dict) -> InlineKeyboardMarkup:
+    """status = {'access': 'anyone'|'restricted', 'role': 'reader'|'commenter'|'writer'|None}"""
+    access, role = status["access"], status.get("role")
+    b = InlineKeyboardBuilder()
+
+    anyone_mark = "✅ " if access == "anyone" else ""
+    restricted_mark = "✅ " if access == "restricted" else ""
+    b.row(
+        InlineKeyboardButton(text=f"{anyone_mark}🌐 Anyone with link", callback_data=f"drive:share_type:anyone:{file_id}"),
+        InlineKeyboardButton(text=f"{restricted_mark}🔒 Restricted", callback_data=f"drive:share_type:restricted:{file_id}"),
+    )
+
+    if access == "anyone":
+        def mark(r):
+            return "✅ " if role == r else ""
+        b.row(
+            InlineKeyboardButton(text=f"{mark('reader')}👁️ Viewer", callback_data=f"drive:share_role:reader:{file_id}"),
+            InlineKeyboardButton(text=f"{mark('commenter')}💬 Commenter", callback_data=f"drive:share_role:commenter:{file_id}"),
+            InlineKeyboardButton(text=f"{mark('writer')}✏️ Editor", callback_data=f"drive:share_role:writer:{file_id}"),
+        )
+
+    b.row(InlineKeyboardButton(text="⬅️ Back", callback_data=f"drive:open:{file_id}"))
+    return b.as_markup()
+
+
+def delete_confirm(file_id: str) -> InlineKeyboardMarkup:
+    b = InlineKeyboardBuilder()
+    b.row(
+        InlineKeyboardButton(text="✅ Delete", callback_data=f"drive:delete:{file_id}"),
+        InlineKeyboardButton(text="❌ Cancel", callback_data=f"drive:cancel:{file_id}"),
+    )
+    return b.as_markup()

@@ -1,0 +1,323 @@
+import os
+import json
+import time
+import html
+import asyncio
+import logging
+
+from aiogram import Router, F, Bot
+from aiogram.filters import Command
+from aiogram.types import Message, CallbackQuery
+from aiogram.fsm.context import FSMContext
+
+import database as db
+import drive_service
+from config import cfg
+from utils import human_bytes, user_message
+from bot.states import UploadStates
+from bot.keyboards import duplicate_confirm
+
+log = logging.getLogger("gdrive_bot.upload")
+router = Router()
+
+# In-memory store of uploads that are paused waiting on a duplicate decision.
+# job_id -> {local_path, filename, size, folder_id, user_id, md5, candidate, created_at}
+# This is intentionally process-local: it only needs to survive the few
+# seconds it takes the user to tap a button, not a full app restart.
+_pending: dict[int, dict] = {}
+_pending_lock = asyncio.Lock()  # FIX #3: protect concurrent coroutine access
+_PENDING_TTL_SECONDS = 60 * 60  # 1 hour
+
+
+async def _cleanup_stale_pending():
+    """Remove expired pending entries, clean up their local files, and cancel
+    their DB jobs.  Must be called under _pending_lock (or called internally
+    while the lock is already held)."""
+    now = time.time()
+    # FIX #3: snapshot keys first so we never iterate while mutating
+    stale = [jid for jid, p in list(_pending.items())
+             if now - p["created_at"] > _PENDING_TTL_SECONDS]
+    for jid in stale:
+        p = _pending.pop(jid, None)
+        if p:
+            # FIX #2: update DB state so stale jobs don't stay "duplicate_pending"
+            try:
+                db.update_job(jid, status="cancelled", error="Duplicate decision timed out")
+            except Exception:
+                log.warning("Could not cancel stale job %s in DB", jid)
+            if os.path.exists(p["local_path"]):
+                try:
+                    os.remove(p["local_path"])
+                except OSError:
+                    pass
+
+
+async def _ensure_connected(message: Message) -> dict | None:
+    user = db.get_user(message.from_user.id)
+    if not user or not user.get("google_token"):
+        await message.answer("☁️ Connect your Google Drive first with /login.")
+        return None
+    return user
+
+
+async def _ensure_default_folder(user: dict, token: dict) -> str:
+    """Get or create the user's default upload folder (e.g. 'Gdrive HR')."""
+    if user.get("default_folder_id"):
+        return user["default_folder_id"]
+
+    folder_name = user.get("default_folder_name") or cfg.DEFAULT_UPLOAD_FOLDER_NAME
+    existing = drive_service.list_children(token, "root", folders_only=True)
+    match = next((f for f in existing if f["name"] == folder_name), None)
+    if match:
+        folder_id = match["id"]
+    else:
+        created = drive_service.mkdir(token, folder_name, "root")
+        folder_id = created["id"]
+    db.update_user_field(user["user_id"], "default_folder_id", folder_id)
+    db.update_user_field(user["user_id"], "default_folder_name", folder_name)
+    return folder_id
+
+
+@router.message(Command("upload"))
+async def cmd_upload(message: Message, state: FSMContext):
+    user = await _ensure_connected(message)
+    if not user:
+        return
+    await state.set_state(UploadStates.waiting_file)
+    await message.answer(
+        "📤 Send me the file (document, video, audio, or photo) you want to upload to Drive.\n"
+        f"It will go to your default folder: *{user.get('default_folder_name') or cfg.DEFAULT_UPLOAD_FOLDER_NAME}*",
+        parse_mode="Markdown",
+    )
+
+
+@router.callback_query(F.data == "menu:upload")
+async def cb_upload(call: CallbackQuery, state: FSMContext):
+    await cmd_upload(user_message(call), state)
+    await call.answer()
+
+
+def _duplicate_warning_text(filename: str, size: int, candidate: dict, extra_count: int) -> str:
+    # The bot defaults to HTML parse mode; escape anything that came from a
+    # filename (user- or Drive-controlled) before interpolating it in.
+    safe_name = html.escape(filename)
+    safe_existing_name = html.escape(candidate["name"])
+    safe_path = html.escape(candidate["folder_path"])
+
+    is_exact = candidate["match"] == "hash"
+    lines = ["⚠️ DUPLICATE DETECTED" if is_exact else "⚠️ POSSIBLE DUPLICATE", ""]
+    lines.append(f"📄 {safe_name}")
+    lines.append(f"📦 {human_bytes(size)}")
+    lines.append("")
+    lines.append("Existing file:")
+    lines.append(f"📄 {safe_existing_name}")
+    lines.append(f"📁 {safe_path}")
+
+    if is_exact:
+        lines.append("🔎 Identical content (hash match)")
+    elif candidate["match"] == "name_size":
+        lines.append("🔎 Same name & size")
+    elif candidate["match"] == "name":
+        lines.append("🔎 Same name, different size")
+    else:
+        lines.append("🔎 Same size, similar name")
+
+    if extra_count > 0:
+        lines.append(f"\n…and {extra_count} more similar file(s) on your Drive.")
+
+    return "\n".join(lines)
+
+
+async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_path: str,
+                            filename: str, size: int, folder_id: str, user_id: int):
+    """Actually uploads local_path to Drive, updates the job/stats, and reports back."""
+    try:
+        await status_msg.edit_text(f"⬆️ Uploading *{filename}* to Drive...", parse_mode="Markdown")
+
+        def progress(pct):
+            db.update_job(job_id, progress=pct * 100)
+
+        def do_upload():
+            return drive_service.upload_local_file(token, local_path, filename, folder_id, progress_cb=progress)
+
+        result = await asyncio.to_thread(do_upload)
+
+        db.update_job(job_id, status="done", progress=100, bytes_total=size, bytes_done=size)
+        db.increment_stat(user_id, uploads=1, uploaded_bytes=size or 0)
+        db.log_action(user_id, "upload", filename)
+
+        await status_msg.edit_text(
+            f"✅ Uploaded successfully!\n\n📄 {html.escape(result.get('name', filename))}\n"
+            f"💾 {human_bytes(size)}\n🔗 {result.get('webViewLink', 'link unavailable')}"
+        )
+    except Exception as e:
+        db.update_job(job_id, status="error", error=str(e))
+        await status_msg.edit_text(f"❌ Upload failed: {e}")
+    finally:
+        if os.path.exists(local_path):
+            os.remove(local_path)
+
+
+@router.message(UploadStates.waiting_file, F.document | F.video | F.audio | F.photo)
+async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
+    await state.clear()
+    user = await _ensure_connected(message)
+    if not user:
+        return
+    token = json.loads(user["google_token"])
+
+    if message.document:
+        tg_file, filename, size = message.document, message.document.file_name, message.document.file_size
+    elif message.video:
+        tg_file, filename, size = message.video, message.video.file_name or f"video_{int(time.time())}.mp4", message.video.file_size
+    elif message.audio:
+        tg_file, filename, size = message.audio, message.audio.file_name or f"audio_{int(time.time())}.mp3", message.audio.file_size
+    else:
+        photo = message.photo[-1]
+        tg_file, filename, size = photo, f"photo_{int(time.time())}.jpg", photo.file_size
+
+    folder_id = await _ensure_default_folder(user, token)
+    job_id = db.create_job(message.from_user.id, "upload", filename, folder_id)
+    db.update_job(job_id, status="running")
+
+    status_msg = await message.answer(f"⬇️ Downloading *{filename}*...", parse_mode="Markdown")
+
+    local_path = os.path.join(cfg.DOWNLOAD_DIR, f"{message.from_user.id}_{job_id}_{filename}")
+    try:
+        file_info = await bot.get_file(tg_file.file_id)
+        await bot.download_file(file_info.file_path, destination=local_path)
+    except Exception as e:
+        db.update_job(job_id, status="error", error=str(e))
+        await status_msg.edit_text(f"❌ Download failed: {e}")
+        if os.path.exists(local_path):
+            os.remove(local_path)
+        return
+
+    # ---- Duplicate detection -------------------------------------------------
+    if cfg.DUPLICATE_CHECK_ENABLED:
+        await status_msg.edit_text("🔎 Checking for duplicates on your Drive...")
+        try:
+            md5 = await asyncio.to_thread(drive_service.local_md5, local_path)
+
+            def search():
+                return drive_service.find_duplicates(
+                    token, filename, size=size, md5=md5, limit=cfg.DUPLICATE_SEARCH_LIMIT
+                )
+
+            candidates = await asyncio.to_thread(search)
+        except Exception:
+            log.exception("Duplicate check failed for job %s, continuing without it", job_id)
+            candidates = []
+
+        if candidates:
+            async with _pending_lock:  # FIX #3: lock before mutating _pending
+                await _cleanup_stale_pending()
+                best, extra = candidates[0], len(candidates) - 1
+                _pending[job_id] = {
+                    "local_path": local_path,
+                    "filename": filename,
+                    "size": size,
+                    "folder_id": folder_id,
+                    "user_id": message.from_user.id,
+                    "md5": md5,
+                    "candidate": best,
+                    "created_at": time.time(),
+                }
+            db.update_job(job_id, status="duplicate_pending")
+            await status_msg.edit_text(
+                _duplicate_warning_text(filename, size, best, extra),
+                reply_markup=duplicate_confirm(str(job_id)),
+            )
+            return
+
+    # No duplicate found (or checking disabled) -> upload straight away.
+    await _finalize_upload(job_id, status_msg, token, local_path, filename, size, folder_id, message.from_user.id)
+
+
+@router.callback_query(F.data.startswith("dup:"))
+async def cb_duplicate_decision(call: CallbackQuery):
+    _, action, job_id_str = call.data.split(":", 2)
+    job_id = int(job_id_str)
+
+    async with _pending_lock:  # FIX #3: lock before mutating _pending
+        pending = _pending.pop(job_id, None)
+
+    if not pending:
+        await call.answer("This upload session has expired. Please resend the file.", show_alert=True)
+        return
+
+    await call.answer()
+    local_path = pending["local_path"]
+
+    if action == "cancel":
+        db.update_job(job_id, status="cancelled")
+        if os.path.exists(local_path):
+            os.remove(local_path)
+        await call.message.edit_text(f"❌ Upload cancelled.\n\n📄 {html.escape(pending['filename'])}")
+        return
+
+    if action == "use":
+        candidate = pending["candidate"]
+        user = db.get_user(pending["user_id"])
+        try:
+            token = json.loads(user["google_token"])
+            link = await asyncio.to_thread(drive_service.get_file_link, token, candidate["id"])
+        except Exception:
+            link = candidate.get("webViewLink", "link unavailable")
+
+        db.update_job(job_id, status="done", progress=100)
+        db.log_action(pending["user_id"], "duplicate_use_existing", pending["filename"])
+        if os.path.exists(local_path):
+            os.remove(local_path)
+
+        await call.message.edit_text(
+            "♻️ Using the existing file — nothing new was uploaded.\n\n"
+            f"📄 {html.escape(candidate['name'])}\n📁 {html.escape(candidate['folder_path'])}\n🔗 {link}"
+        )
+        return
+
+    if action == "upload":
+        token = db.get_google_token(pending["user_id"])
+        if not token:
+            db.update_job(job_id, status="error", error="Drive disconnected")
+            # FIX #2: always clean up local file on every error exit path
+            if os.path.exists(local_path):
+                try:
+                    os.remove(local_path)
+                except OSError:
+                    pass
+            await call.message.edit_text("☁️ Your Google Drive got disconnected. Use /login and resend the file.")
+            return
+        db.update_job(job_id, status="running")
+        # _finalize_upload edits call.message itself (to "Uploading..." then the
+        # final result) - don't pre-edit here, Telegram rejects a no-op edit.
+        await _finalize_upload(
+            job_id, call.message, token, local_path,
+            pending["filename"], pending["size"], pending["folder_id"], pending["user_id"],
+        )
+        return
+
+
+@router.message(Command("queue"))
+async def cmd_queue(message: Message):
+    jobs = db.active_jobs_for_user(message.from_user.id)
+    if not jobs:
+        await message.answer("📭 Your upload queue is empty.")
+        return
+    lines = ["📤 UPLOAD QUEUE\n"]
+    for j in jobs:
+        lines.append(f"#{j['job_id']} — {j['status']} ({j.get('progress', 0):.0f}%) — {j['source'][:50]}")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("history"))
+async def cmd_history(message: Message):
+    jobs = db.job_history_for_user(message.from_user.id, limit=10)
+    if not jobs:
+        await message.answer("📭 No upload/clone history yet.")
+        return
+    lines = ["📜 HISTORY\n"]
+    for j in jobs:
+        icon = "📤" if j["job_type"] == "upload" else "🔗"
+        lines.append(f"{icon} #{j['job_id']} {j['status']} — {j['source'][:50]}")
+    await message.answer("\n".join(lines))
