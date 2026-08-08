@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from aiogram import Router, F
@@ -27,11 +28,11 @@ async def _ensure_connected(message: Message) -> dict | None:
 async def _show_folder(message: Message, token: dict, folder_id: str, state: FSMContext, edit=False):
     data = await state.get_data()
     stack = data.get("stack", [])
-    parent_id = stack[-1] if stack else None
+    forward = data.get("forward", [])
 
     items = drive_service.list_children(token, folder_id)
     text = "☁️ MY DRIVE\n\n" + (f"{len(items)} item(s) here." if items else "This folder is empty.")
-    kb = drive_browser(items, folder_id, parent_id)
+    kb = drive_browser(items, folder_id, bool(stack), bool(forward))
     if edit:
         try:
             await message.edit_text(text, reply_markup=kb)
@@ -47,7 +48,7 @@ async def cmd_drive(message: Message, state: FSMContext):
     if not user:
         return
     await state.set_state(DriveStates.browsing)
-    await state.update_data(stack=[], current="root")
+    await state.update_data(stack=[], current="root", forward=[])
     token = json.loads(user["google_token"])
     await _show_folder(message, token, "root", state)
 
@@ -69,19 +70,58 @@ async def cb_drive_open(call: CallbackQuery, state: FSMContext):
     meta = drive_service.get_file_meta(token, target_id)
     if meta["mimeType"] == FOLDER_MIME:
         data = await state.get_data()
-        stack = data.get("stack", [])
         current = data.get("current", "root")
-        # Determine direction: if target is the previous stack top, we're going back
-        if stack and target_id == stack[-1]:
-            stack = stack[:-1]
-        else:
-            stack.append(current)
-        await state.update_data(stack=stack, current=target_id)
+        stack = data.get("stack", []) + [current]
+        await state.update_data(stack=stack, current=target_id, forward=[])
         await _show_folder(call.message, token, target_id, state, edit=True)
     else:
         size = human_bytes(int(meta.get("size", 0) or 0))
-        await call.message.answer(f"📄 {meta['name']}\n💾 {size}", reply_markup=file_actions(target_id))
+        try:
+            link = await asyncio.to_thread(drive_service.get_file_link, token, target_id)
+        except Exception:
+            link = meta.get("webViewLink")
+        file_link = html_link(meta["name"], link)
+        await call.message.answer(
+            f"📄 {file_link}\n💾 {size}",
+            parse_mode="HTML",
+            reply_markup=file_actions(target_id),
+        )
     await safe_answer(call)
+
+
+async def _navigate_history(call: CallbackQuery, state: FSMContext, direction: str):
+    token = db.get_google_token(call.from_user.id)
+    if not token:
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
+        return
+
+    data = await state.get_data()
+    current = data.get("current", "root")
+    stack = list(data.get("stack", []))
+    forward = list(data.get("forward", []))
+    if direction == "back" and stack:
+        forward.append(current)
+        current = stack.pop()
+    elif direction == "forward" and forward:
+        stack.append(current)
+        current = forward.pop()
+    else:
+        await safe_answer(call)
+        return
+
+    await state.update_data(stack=stack, current=current, forward=forward)
+    await _show_folder(call.message, token, current, state, edit=True)
+    await safe_answer(call)
+
+
+@router.callback_query(F.data == "drive:back")
+async def cb_drive_back(call: CallbackQuery, state: FSMContext):
+    await _navigate_history(call, state, "back")
+
+
+@router.callback_query(F.data == "drive:forward")
+async def cb_drive_forward(call: CallbackQuery, state: FSMContext):
+    await _navigate_history(call, state, "forward")
 
 
 @router.callback_query(F.data.startswith("drive:mkdir:"))

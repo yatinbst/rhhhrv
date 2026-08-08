@@ -326,7 +326,7 @@ def get_file_meta(user_token: dict, file_id: str) -> dict:
     with _handle_drive_errors(f"reading file metadata for '{file_id}'"):
         drive = get_drive(user_token)
         return drive.files().get(
-            fileId=file_id, fields="id, name, mimeType, size"
+            fileId=file_id, fields="id, name, mimeType, size, webViewLink, webContentLink"
         ).execute()
 
 

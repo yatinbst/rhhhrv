@@ -95,7 +95,7 @@ class Config:
     # Storage
     DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "data", "bot_data.sqlite3"))
     DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", os.path.join(BASE_DIR, "downloads"))
-    DEFAULT_UPLOAD_FOLDER_NAME = "Gdrive HR"
+    DEFAULT_UPLOAD_FOLDER_NAME = "HR Gdrive"
 
     # Default sharing permission applied when a link is generated
     # (Drive API values: role = reader|commenter|writer, type = anyone|restricted)

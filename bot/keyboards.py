@@ -68,14 +68,21 @@ def help_menu() -> InlineKeyboardMarkup:
     return b.as_markup()
 
 
-def drive_browser(items: list, folder_id: str, parent_id: str | None) -> InlineKeyboardMarkup:
+def drive_browser(
+    items: list,
+    folder_id: str,
+    can_go_back: bool = False,
+    can_go_forward: bool = False,
+) -> InlineKeyboardMarkup:
     b = InlineKeyboardBuilder()
     for item in items:
         icon = "📁" if item["mimeType"] == "application/vnd.google-apps.folder" else "📄"
         b.row(InlineKeyboardButton(text=f"{icon} {item['name']}", callback_data=f"drive:open:{item['id']}"))
     nav = []
-    if parent_id:
-        nav.append(InlineKeyboardButton(text="⬅️ Back", callback_data=f"drive:open:{parent_id}"))
+    if can_go_back:
+        nav.append(InlineKeyboardButton(text="⬅️ Back", callback_data="drive:back"))
+    if can_go_forward:
+        nav.append(InlineKeyboardButton(text="➡️ Forward", callback_data="drive:forward"))
     nav.append(InlineKeyboardButton(text="➕ New Folder", callback_data=f"drive:mkdir:{folder_id}"))
     b.row(*nav)
     if folder_id != "root":
@@ -89,10 +96,7 @@ def file_actions(file_id: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="✏️ Rename", callback_data=f"drive:rename:{file_id}"),
         InlineKeyboardButton(text="🔒 Sharing", callback_data=f"drive:share:{file_id}"),
     )
-    b.row(
-        InlineKeyboardButton(text="📋 Copy", callback_data=f"drive:copy:{file_id}"),
-        InlineKeyboardButton(text="➡️ Move", callback_data=f"drive:move:{file_id}"),
-    )
+    b.row(InlineKeyboardButton(text="🔗 Open Link", callback_data=f"drive:link:{file_id}"))
     b.row(InlineKeyboardButton(text="🗑️ Delete", callback_data=f"drive:delete_confirm:{file_id}"))
     return b.as_markup()
 
