@@ -1,13 +1,24 @@
 import re
 import io
 import hashlib
+from contextlib import contextmanager
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError  # FIX #5: needed for structured error handling
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from google.auth.exceptions import RefreshError
 
 from google_auth import credentials_from_dict
 
 FOLDER_MIME = "application/vnd.google-apps.folder"
+
+
+@contextmanager
+def _handle_drive_errors(operation: str):
+    try:
+        yield
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error while {operation}: {reason}") from e
 
 
 def get_drive(user_token: dict):
@@ -20,8 +31,9 @@ def get_about(user_token: dict) -> dict:
     try:
         drive = get_drive(user_token)
         about = drive.about().get(fields="storageQuota,user").execute()
-    except HttpError as e:
-        raise RuntimeError(f"Drive API error fetching account info: {e.reason}") from e
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error fetching account info: {reason}") from e
     quota = about.get("storageQuota", {})
     limit = int(quota.get("limit", 0)) if quota.get("limit") else None
     usage = int(quota.get("usage", 0))
@@ -48,8 +60,9 @@ def list_children(user_token: dict, folder_id: str = "root", folders_only=False,
             orderBy="folder,name",
         ).execute()
         return results.get("files", [])
-    except HttpError as e:
-        raise RuntimeError(f"Drive API error listing folder '{folder_id}': {e.reason}") from e
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error listing folder '{folder_id}': {reason}") from e
 
 
 def mkdir(user_token: dict, name: str, parent_id: str = "root") -> dict:
@@ -58,32 +71,36 @@ def mkdir(user_token: dict, name: str, parent_id: str = "root") -> dict:
         drive = get_drive(user_token)
         metadata = {"name": name, "mimeType": FOLDER_MIME, "parents": [parent_id]}
         return drive.files().create(body=metadata, fields="id, name").execute()
-    except HttpError as e:
-        raise RuntimeError(f"Drive API error creating folder '{name}': {e.reason}") from e
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error creating folder '{name}': {reason}") from e
 
 
 def rename(user_token: dict, file_id: str, new_name: str) -> dict:
-    drive = get_drive(user_token)
-    return drive.files().update(fileId=file_id, body={"name": new_name}, fields="id, name").execute()
+    with _handle_drive_errors(f"renaming file '{file_id}'"):
+        drive = get_drive(user_token)
+        return drive.files().update(fileId=file_id, body={"name": new_name}, fields="id, name").execute()
 
 
 def move(user_token: dict, file_id: str, new_parent_id: str) -> dict:
-    drive = get_drive(user_token)
-    f = drive.files().get(fileId=file_id, fields="parents").execute()
-    old_parents = ",".join(f.get("parents", []))
-    return drive.files().update(
-        fileId=file_id, addParents=new_parent_id, removeParents=old_parents, fields="id, parents"
-    ).execute()
+    with _handle_drive_errors(f"moving file '{file_id}'"):
+        drive = get_drive(user_token)
+        f = drive.files().get(fileId=file_id, fields="parents").execute()
+        old_parents = ",".join(f.get("parents", []))
+        return drive.files().update(
+            fileId=file_id, addParents=new_parent_id, removeParents=old_parents, fields="id, parents"
+        ).execute()
 
 
 def copy(user_token: dict, file_id: str, new_parent_id: str = None, new_name: str = None) -> dict:
-    drive = get_drive(user_token)
-    body = {}
-    if new_parent_id:
-        body["parents"] = [new_parent_id]
-    if new_name:
-        body["name"] = new_name
-    return drive.files().copy(fileId=file_id, body=body, fields="id, name").execute()
+    with _handle_drive_errors(f"copying file '{file_id}'"):
+        drive = get_drive(user_token)
+        body = {}
+        if new_parent_id:
+            body["parents"] = [new_parent_id]
+        if new_name:
+            body["name"] = new_name
+        return drive.files().copy(fileId=file_id, body=body, fields="id, name").execute()
 
 
 def delete(user_token: dict, file_id: str):
@@ -91,8 +108,9 @@ def delete(user_token: dict, file_id: str):
     try:
         drive = get_drive(user_token)
         drive.files().delete(fileId=file_id).execute()
-    except HttpError as e:
-        raise RuntimeError(f"Drive API error deleting file '{file_id}': {e.reason}") from e
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error deleting file '{file_id}': {reason}") from e
 
 
 ROLE_LABELS = {"reader": "👁️ Viewer", "commenter": "💬 Commenter", "writer": "✏️ Editor"}
@@ -100,20 +118,22 @@ ROLE_LABELS = {"reader": "👁️ Viewer", "commenter": "💬 Commenter", "write
 
 def get_sharing_status(user_token: dict, file_id: str) -> dict:
     """Returns {'access': 'anyone'|'restricted', 'role': str|None, 'permission_id': str|None}"""
-    drive = get_drive(user_token)
-    perms = drive.permissions().list(
-        fileId=file_id, fields="permissions(id, type, role)"
-    ).execute().get("permissions", [])
-    anyone_perm = next((p for p in perms if p["type"] == "anyone"), None)
-    if anyone_perm:
-        return {"access": "anyone", "role": anyone_perm["role"], "permission_id": anyone_perm["id"]}
-    return {"access": "restricted", "role": None, "permission_id": None}
+    with _handle_drive_errors(f"reading sharing settings for '{file_id}'"):
+        drive = get_drive(user_token)
+        perms = drive.permissions().list(
+            fileId=file_id, fields="permissions(id, type, role)"
+        ).execute().get("permissions", [])
+        anyone_perm = next((p for p in perms if p["type"] == "anyone"), None)
+        if anyone_perm:
+            return {"access": "anyone", "role": anyone_perm["role"], "permission_id": anyone_perm["id"]}
+        return {"access": "restricted", "role": None, "permission_id": None}
 
 
 def get_file_link(user_token: dict, file_id: str) -> str:
-    drive = get_drive(user_token)
-    f = drive.files().get(fileId=file_id, fields="webViewLink, webContentLink").execute()
-    return f.get("webViewLink") or f.get("webContentLink")
+    with _handle_drive_errors(f"getting a link for '{file_id}'"):
+        drive = get_drive(user_token)
+        f = drive.files().get(fileId=file_id, fields="webViewLink, webContentLink").execute()
+        return f.get("webViewLink") or f.get("webContentLink")
 
 
 def set_anyone_permission(user_token: dict, file_id: str, role: str = None) -> dict:
@@ -121,26 +141,28 @@ def set_anyone_permission(user_token: dict, file_id: str, role: str = None) -> d
     Updates the existing 'anyone' permission if present, otherwise creates one."""
     from config import cfg
     role = role or cfg.DEFAULT_SHARE_ROLE
-    drive = get_drive(user_token)
-    status = get_sharing_status(user_token, file_id)
-    if status["access"] == "anyone":
-        drive.permissions().update(
-            fileId=file_id, permissionId=status["permission_id"], body={"role": role}
-        ).execute()
-    else:
-        drive.permissions().create(
-            fileId=file_id, body={"role": role, "type": "anyone"}
-        ).execute()
-    return {"link": get_file_link(user_token, file_id), "role": role, "access": "anyone"}
+    with _handle_drive_errors(f"updating sharing for '{file_id}'"):
+        drive = get_drive(user_token)
+        status = get_sharing_status(user_token, file_id)
+        if status["access"] == "anyone":
+            drive.permissions().update(
+                fileId=file_id, permissionId=status["permission_id"], body={"role": role}
+            ).execute()
+        else:
+            drive.permissions().create(
+                fileId=file_id, body={"role": role, "type": "anyone"}
+            ).execute()
+        return {"link": get_file_link(user_token, file_id), "role": role, "access": "anyone"}
 
 
 def set_restricted(user_token: dict, file_id: str) -> dict:
     """Removes the 'anyone' permission, making the file link-restricted (owner + explicit shares only)."""
-    drive = get_drive(user_token)
-    status = get_sharing_status(user_token, file_id)
-    if status["access"] == "anyone" and status["permission_id"]:
-        drive.permissions().delete(fileId=file_id, permissionId=status["permission_id"]).execute()
-    return {"link": get_file_link(user_token, file_id), "role": None, "access": "restricted"}
+    with _handle_drive_errors(f"restricting sharing for '{file_id}'"):
+        drive = get_drive(user_token)
+        status = get_sharing_status(user_token, file_id)
+        if status["access"] == "anyone" and status["permission_id"]:
+            drive.permissions().delete(fileId=file_id, permissionId=status["permission_id"]).execute()
+        return {"link": get_file_link(user_token, file_id), "role": None, "access": "restricted"}
 
 
 def get_link(user_token: dict, file_id: str) -> str:
@@ -278,8 +300,9 @@ def upload_local_file(user_token: dict, local_path: str, filename: str, parent_i
             if status and progress_cb:
                 progress_cb(status.progress())
         return response
-    except HttpError as e:
-        raise RuntimeError(f"Drive API error uploading '{filename}': {e.reason}") from e
+    except (HttpError, RefreshError) as e:
+        reason = getattr(e, "reason", None) or str(e)
+        raise RuntimeError(f"Drive API error uploading '{filename}': {reason}") from e
 
 
 DRIVE_LINK_RE = re.compile(r"/(?:folders|d|file/d)/([a-zA-Z0-9_-]+)")
@@ -300,38 +323,40 @@ def extract_id_from_link(link: str) -> str | None:
 
 
 def get_file_meta(user_token: dict, file_id: str) -> dict:
-    drive = get_drive(user_token)
-    return drive.files().get(
-        fileId=file_id, fields="id, name, mimeType, size"
-    ).execute()
+    with _handle_drive_errors(f"reading file metadata for '{file_id}'"):
+        drive = get_drive(user_token)
+        return drive.files().get(
+            fileId=file_id, fields="id, name, mimeType, size"
+        ).execute()
 
 
 def count_folder_contents(user_token: dict, folder_id: str) -> tuple[int, int, int]:
     """Returns (file_count, folder_count, total_bytes) recursively."""
-    drive = get_drive(user_token)
-    files, folders, total = 0, 0, 0
-    stack = [folder_id]
-    while stack:
-        current = stack.pop()
-        page_token = None
-        while True:
-            resp = drive.files().list(
-                q=f"'{current}' in parents and trashed = false",
-                fields="nextPageToken, files(id, mimeType, size)",
-                pageSize=1000,
-                pageToken=page_token,
-            ).execute()
-            for f in resp.get("files", []):
-                if f["mimeType"] == FOLDER_MIME:
-                    folders += 1
-                    stack.append(f["id"])
-                else:
-                    files += 1
-                    total += int(f.get("size", 0) or 0)
-            page_token = resp.get("nextPageToken")
-            if not page_token:
-                break
-    return files, folders, total
+    with _handle_drive_errors(f"counting folder contents for '{folder_id}'"):
+        drive = get_drive(user_token)
+        files, folders, total = 0, 0, 0
+        stack = [folder_id]
+        while stack:
+            current = stack.pop()
+            page_token = None
+            while True:
+                resp = drive.files().list(
+                    q=f"'{current}' in parents and trashed = false",
+                    fields="nextPageToken, files(id, mimeType, size)",
+                    pageSize=1000,
+                    pageToken=page_token,
+                ).execute()
+                for f in resp.get("files", []):
+                    if f["mimeType"] == FOLDER_MIME:
+                        folders += 1
+                        stack.append(f["id"])
+                    else:
+                        files += 1
+                        total += int(f.get("size", 0) or 0)
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+        return files, folders, total
 
 
 def clone_item(user_token: dict, source_id: str, dest_parent_id: str,
@@ -340,6 +365,12 @@ def clone_item(user_token: dict, source_id: str, dest_parent_id: str,
     Recursively clone a Drive file or folder (owned by anyone, as long as it's
     shared/public) into dest_parent_id on the user's own Drive.
     """
+    with _handle_drive_errors(f"cloning item '{source_id}'"):
+        return _clone_item(user_token, source_id, dest_parent_id, progress_cb, _counters)
+
+
+def _clone_item(user_token: dict, source_id: str, dest_parent_id: str,
+                progress_cb=None, _counters=None) -> dict:
     drive = get_drive(user_token)
     meta = drive.files().get(fileId=source_id, fields="id, name, mimeType").execute()
 
@@ -362,7 +393,7 @@ def clone_item(user_token: dict, source_id: str, dest_parent_id: str,
             children = resp.get("files", [])
             _counters["total"] += len(children)
             for child in children:
-                clone_item(user_token, child["id"], new_folder["id"], progress_cb, _counters)
+                _clone_item(user_token, child["id"], new_folder["id"], progress_cb, _counters)
             page_token = resp.get("nextPageToken")
             if not page_token:
                 break

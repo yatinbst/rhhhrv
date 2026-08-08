@@ -235,9 +235,22 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
 
 
 @router.callback_query(F.data.startswith("dup:"))
-async def cb_duplicate_decision(call: CallbackQuery):
-    _, action, job_id_str = call.data.split(":", 2)
-    job_id = int(job_id_str)
+async def cb_duplicate_decision(call: CallbackQuery, state: FSMContext):
+    parts = (call.data or "").split(":", 2)
+    if len(parts) != 3 or parts[1] not in {"cancel", "use", "upload"}:
+        await call.answer("Invalid upload decision.", show_alert=True)
+        return
+    _, action, job_id_str = parts
+    try:
+        job_id = int(job_id_str)
+    except ValueError:
+        await call.answer("Invalid upload decision.", show_alert=True)
+        return
+
+    # Claim the entry before doing any I/O, so repeated taps cannot process it
+    # twice. The FSM state belongs to the same upload flow and must be cleared
+    # even when the pending entry has expired.
+    await state.clear()
 
     async with _pending_lock:  # FIX #3: lock before mutating _pending
         pending = _pending.pop(job_id, None)

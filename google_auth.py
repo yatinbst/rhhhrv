@@ -119,6 +119,9 @@ def credentials_from_dict(data: dict) -> Credentials:
     # unusable — so it covers all cases correctly.
     if not creds.valid and creds.refresh_token:
         creds.refresh(GoogleRequest())
+        # Keep the in-memory token current for subsequent API calls and for
+        # callers that persist the token after a refresh.
+        data.update(credentials_to_dict(creds))
     return creds
 
 
