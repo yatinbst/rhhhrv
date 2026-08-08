@@ -236,6 +236,20 @@ def all_active_jobs():
         return [dict(r) for r in rows]
 
 
+def recover_interrupted_jobs():
+    """Mark in-process jobs as interrupted after an application restart."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            UPDATE jobs
+            SET status='error', error='Interrupted by bot restart', updated_at=?
+            WHERE status IN ('queued', 'running', 'duplicate_pending')
+            """,
+            (int(time.time()),),
+        )
+        return cursor.rowcount
+
+
 # ---------- History / logs ----------
 
 def log_action(user_id: int, action: str, detail: str = ""):

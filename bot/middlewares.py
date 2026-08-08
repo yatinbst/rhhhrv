@@ -1,10 +1,19 @@
 import asyncio
+import logging
+import time
+from collections import defaultdict, deque
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 
 import database as db
 from utils import is_admin, safe_answer
+
+log = logging.getLogger("gdrive_bot.middleware")
+_RATE_WINDOW_SECONDS = 60
+_RATE_LIMIT = 30
+_event_times: dict[int, deque[float]] = defaultdict(deque)
+_rate_lock = asyncio.Lock()
 
 
 async def _reply(event: TelegramObject, text: str) -> None:
@@ -67,3 +76,39 @@ class CallbackAckMiddleware(BaseMiddleware):
         if isinstance(event, CallbackQuery):
             await safe_answer(event)
         return await handler(event, data)
+
+
+class RateLimitMiddleware(BaseMiddleware):
+    """Limit bursts without slowing normal command usage."""
+
+    async def __call__(self, handler, event, data):
+        user = getattr(event, "from_user", None)
+        if user is None or is_admin(user.id):
+            return await handler(event, data)
+
+        now = time.monotonic()
+        async with _rate_lock:
+            events = _event_times[user.id]
+            while events and now - events[0] >= _RATE_WINDOW_SECONDS:
+                events.popleft()
+            if len(events) >= _RATE_LIMIT:
+                await _reply(event, "⏳ Too many requests. Please wait a moment and try again.")
+                return
+            events.append(now)
+        return await handler(event, data)
+
+
+class ExceptionMiddleware(BaseMiddleware):
+    """Keep one bad update from producing an unhandled webhook failure."""
+
+    async def __call__(self, handler, event, data):
+        try:
+            return await handler(event, data)
+        except Exception:
+            log.exception("Unhandled bot error while processing %s", type(event).__name__)
+            if isinstance(event, Message):
+                await event.answer("⚠️ Something went wrong. Please try again.")
+            elif isinstance(event, CallbackQuery):
+                if event.message:
+                    await event.message.answer("⚠️ Something went wrong. Please try again.")
+                await safe_answer(event)

@@ -23,9 +23,12 @@ import database as db
 import google_auth
 from config import cfg, _detect_public_base_url
 from bot.handlers import register_all_routers
-from bot.middlewares import CallbackAckMiddleware, GateMiddleware
+from bot.middlewares import CallbackAckMiddleware, ExceptionMiddleware, GateMiddleware, RateLimitMiddleware
 
 db.init_db()
+recovered_jobs = db.recover_interrupted_jobs()
+if recovered_jobs:
+    log.warning("Marked %d interrupted job(s) after restart", recovered_jobs)
 
 if not cfg.BOT_TOKEN:
     raise RuntimeError(
@@ -35,7 +38,11 @@ if not cfg.BOT_TOKEN:
 
 bot = Bot(token=cfg.BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
+dp.message.middleware(ExceptionMiddleware())
+dp.message.middleware(RateLimitMiddleware())
 dp.message.middleware(GateMiddleware())
+dp.callback_query.middleware(ExceptionMiddleware())
+dp.callback_query.middleware(RateLimitMiddleware())
 dp.callback_query.middleware(CallbackAckMiddleware())
 dp.callback_query.middleware(GateMiddleware())
 register_all_routers(dp)

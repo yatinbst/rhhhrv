@@ -30,7 +30,7 @@ def get_about(user_token: dict) -> dict:
     # FIX #5: wrap Drive API call so callers get a clear error message
     try:
         drive = get_drive(user_token)
-        about = drive.about().get(fields="storageQuota,user").execute()
+        about = drive.about().get(fields="storageQuota,user").execute(num_retries=3)
     except (HttpError, RefreshError) as e:
         reason = getattr(e, "reason", None) or str(e)
         raise RuntimeError(f"Drive API error fetching account info: {reason}") from e
@@ -58,7 +58,7 @@ def list_children(user_token: dict, folder_id: str = "root", folders_only=False,
             fields="files(id, name, mimeType, size, modifiedTime)",
             pageSize=100,
             orderBy="folder,name",
-        ).execute()
+        ).execute(num_retries=3)
         return results.get("files", [])
     except (HttpError, RefreshError) as e:
         reason = getattr(e, "reason", None) or str(e)
@@ -138,7 +138,7 @@ def get_sharing_status(user_token: dict, file_id: str) -> dict:
         drive = get_drive(user_token)
         perms = drive.permissions().list(
             fileId=file_id, fields="permissions(id, type, role)"
-        ).execute().get("permissions", [])
+        ).execute(num_retries=3).get("permissions", [])
         anyone_perm = next((p for p in perms if p["type"] == "anyone"), None)
         if anyone_perm:
             return {"access": "anyone", "role": anyone_perm["role"], "permission_id": anyone_perm["id"]}
@@ -148,7 +148,7 @@ def get_sharing_status(user_token: dict, file_id: str) -> dict:
 def get_file_link(user_token: dict, file_id: str) -> str:
     with _handle_drive_errors(f"getting a link for '{file_id}'"):
         drive = get_drive(user_token)
-        f = drive.files().get(fileId=file_id, fields="webViewLink, webContentLink").execute()
+        f = drive.files().get(fileId=file_id, fields="webViewLink, webContentLink").execute(num_retries=3)
         return f.get("webViewLink") or f.get("webContentLink")
 
 
@@ -214,7 +214,7 @@ def get_folder_path(user_token: dict, folder_id: str | None, _drive=None) -> str
     while current and current not in seen and len(parts) < 10:
         seen.add(current)
         try:
-            meta = drive.files().get(fileId=current, fields="id, name, parents").execute()
+            meta = drive.files().get(fileId=current, fields="id, name, parents").execute(num_retries=3)
         except Exception:
             break
         name = meta.get("name")
@@ -247,7 +247,7 @@ def find_duplicates(user_token: dict, filename: str, size: int | None = None,
         resp = drive.files().list(
             q=f"name = '{safe_name}' and trashed = false and mimeType != '{FOLDER_MIME}'",
             fields=fields, pageSize=limit,
-        ).execute()
+        ).execute(num_retries=3)
         for f in resp.get("files", []):
             candidates[f["id"]] = f
     except Exception:
@@ -262,7 +262,7 @@ def find_duplicates(user_token: dict, filename: str, size: int | None = None,
             resp = drive.files().list(
                 q=f"name contains '{safe_base}' and trashed = false and mimeType != '{FOLDER_MIME}'",
                 fields=fields, pageSize=limit,
-            ).execute()
+            ).execute(num_retries=3)
             for f in resp.get("files", []):
                 candidates.setdefault(f["id"], f)
         except Exception:
@@ -343,7 +343,7 @@ def get_file_meta(user_token: dict, file_id: str) -> dict:
         drive = get_drive(user_token)
         return drive.files().get(
             fileId=file_id, fields="id, name, mimeType, size, webViewLink, webContentLink"
-        ).execute()
+        ).execute(num_retries=3)
 
 
 def count_folder_contents(user_token: dict, folder_id: str, progress_cb=None) -> tuple[int, int, int]:
@@ -361,7 +361,7 @@ def count_folder_contents(user_token: dict, folder_id: str, progress_cb=None) ->
                     fields="nextPageToken, files(id, mimeType, size)",
                     pageSize=1000,
                     pageToken=page_token,
-                ).execute()
+                ).execute(num_retries=3)
                 for f in resp.get("files", []):
                     if f["mimeType"] == FOLDER_MIME:
                         folders += 1
@@ -390,7 +390,7 @@ def clone_item(user_token: dict, source_id: str, dest_parent_id: str,
 def _clone_item(user_token: dict, source_id: str, dest_parent_id: str,
                 progress_cb=None, _counters=None) -> dict:
     drive = get_drive(user_token)
-    meta = drive.files().get(fileId=source_id, fields="id, name, mimeType").execute()
+    meta = drive.files().get(fileId=source_id, fields="id, name, mimeType").execute(num_retries=3)
 
     if _counters is None:
         _counters = {"done": 0, "total": 1}
@@ -407,7 +407,7 @@ def _clone_item(user_token: dict, source_id: str, dest_parent_id: str,
                 fields="nextPageToken, files(id, name, mimeType)",
                 pageSize=1000,
                 pageToken=page_token,
-            ).execute()
+            ).execute(num_retries=3)
             children = resp.get("files", [])
             _counters["total"] += len(children)
             for child in children:

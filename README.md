@@ -121,11 +121,15 @@ docker run --rm -p 8080:8080 --env-file .env gdrive-bot
 
 ## Known limitations to build on
 
-- Storage is a single local SQLite file (`bot_data.db`) — fine for one
-  instance; move to Postgres if you scale to multiple replicas.
-- Clone/upload jobs run in-process (thread pool), so a restart drops any job
-  mid-flight — add a persistent queue (e.g. Redis/RQ) for production-grade
-  reliability.
+- Storage is a single local SQLite file (`data/bot_data.sqlite3`) — fine for
+   one instance; move to Postgres if you scale to multiple replicas.
+- Clone/upload jobs run in-process (thread pool). On restart, unfinished jobs
+   are marked `error` with an interruption message; add a persistent queue
+   (e.g. Redis/RQ) for automatic resume and production-grade reliability.
+- User bursts are rate-limited to protect Telegram and Google API quotas.
+- Transient Google metadata/list requests use bounded client retries; uploads
+   and mutations are intentionally not retried automatically to avoid duplicate
+   Drive actions.
 - `/search` and folder listing show the first page only (up to 100 items);
   add pagination buttons if folders get large.
 - Only "My Drive" is supported as a destination; Shared Drives support would
