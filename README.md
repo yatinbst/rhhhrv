@@ -70,9 +70,11 @@ web Service, and builds both URLs itself at startup (see `config.py`).
 6. Copy the detected `oauth_redirect_uri` from that debug endpoint (or the
    startup logs) into Google Cloud Console → OAuth client → Authorized
    redirect URIs.
-7. Optional: attach a Koyeb **Volume** at `/app` (or point `DB_PATH` /
+6. Optional: attach a Koyeb **Volume** at `/app/data` (or point `DB_PATH` /
    `DOWNLOAD_DIR` at a mounted volume) so the SQLite DB survives redeploys —
-   without one, user logins/history reset on each new deploy.
+   without one, user logins/history reset on each new deploy. The default
+   database path is `/app/data/bot_data.sqlite3` in Docker and `data/` in a
+   local checkout.
 
 Redeploying, renaming the app, or moving it to a different Koyeb region
 changes `KOYEB_PUBLIC_DOMAIN` automatically, and the bot re-syncs its webhook

@@ -24,12 +24,12 @@ COPY . .
 
 # Writable dirs for the SQLite DB and temp downloads (attach a Koyeb Volume
 # here if you want the DB to survive redeploys).
-RUN mkdir -p /app/downloads
+RUN mkdir -p /app/data /app/downloads
 
 # Koyeb injects PORT at runtime; 8080 is just the local default/fallback.
 ENV PORT=8080 \
     DOWNLOAD_DIR=/app/downloads \
-    DB_PATH=/app/bot_data.db
+    DB_PATH=/app/data/bot_data.sqlite3
 
 EXPOSE 8080
 

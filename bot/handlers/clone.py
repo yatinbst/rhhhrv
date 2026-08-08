@@ -8,7 +8,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 import drive_service
-from utils import human_bytes, user_message
+from utils import html_link, human_bytes, progress_bar, safe_answer, safe_edit_text, user_message
 from bot.keyboards import clone_confirm
 from bot.states import CloneStates
 
@@ -55,7 +55,7 @@ async def _process_clone_link(message: Message, user: dict, link: str):
 
     token = json.loads(user["google_token"])
     try:
-        meta = drive_service.get_file_meta(token, file_id)
+        meta = await asyncio.to_thread(drive_service.get_file_meta, token, file_id)
     except Exception as e:
         await message.answer(f"❌ Couldn't access that Drive item: {e}")
         return
@@ -65,7 +65,14 @@ async def _process_clone_link(message: Message, user: dict, link: str):
 
     if is_folder:
         status = await message.answer("🔍 Scanning folder contents...")
-        files, folders, total_bytes = drive_service.count_folder_contents(token, file_id)
+        try:
+            files, folders, total_bytes = await asyncio.to_thread(
+                drive_service.count_folder_contents, token, file_id
+            )
+        except Exception as exc:
+            db.update_job(job_id, status="error", error=str(exc))
+            await status.edit_text(f"❌ Couldn't scan that folder: {exc}")
+            return
         db.update_job(job_id, bytes_total=total_bytes)
         text = (
             "🔗 Drive Folder Found\n\n"
@@ -86,20 +93,20 @@ async def _process_clone_link(message: Message, user: dict, link: str):
 async def cb_clone_go(call: CallbackQuery):
     job_id = int(call.data.split(":")[-1])
     job = db.get_job(job_id)
-    if not job or job["status"] == "cancelled":
-        await call.answer("Job no longer available.", show_alert=True)
+    if not job or job["user_id"] != call.from_user.id or job["status"] == "cancelled":
+        await safe_answer(call, "Job no longer available.", show_alert=True)
         return
 
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
     file_id = drive_service.extract_id_from_link(job["source"])
     dest_id = job["dest_folder_id"] or "root"
 
     db.update_job(job_id, status="running")
     await call.message.edit_text("🚀 Cloning started... this may take a while for large folders.")
-    await call.answer()
+    await safe_answer(call)
 
     def do_clone():
         last_update = {"t": 0}
@@ -110,15 +117,31 @@ async def cb_clone_go(call: CallbackQuery):
             if now - last_update["t"] > 2:
                 last_update["t"] = now
                 db.update_job(job_id, progress=(done / total * 100) if total else 0)
+                progress_text = progress_bar(done, total)
+                asyncio.run_coroutine_threadsafe(
+                    safe_edit_text(
+                        call.message,
+                        f"🚀 Cloning {progress_text}\nThis may take a while for large folders."
+                    ),
+                    loop,
+                )
 
         return drive_service.clone_item(token, file_id, dest_id, progress_cb=progress)
 
     try:
+        loop = asyncio.get_running_loop()
         result = await asyncio.to_thread(do_clone)
         db.update_job(job_id, status="done", progress=100)
         db.increment_stat(call.from_user.id, clones=1, cloned_bytes=job.get("bytes_total") or 0)
         db.log_action(call.from_user.id, "clone", job["source"])
-        await call.message.answer(f"✅ Clone complete!\n\n📁 {result.get('name')}")
+        try:
+            link = await asyncio.to_thread(drive_service.get_link, token, result["id"])
+        except Exception:
+            link = None
+        await call.message.answer(
+            f"✅ Clone complete!\n\n📁 {html_link(result.get('name', 'Unnamed item'), link)}",
+            parse_mode="HTML",
+        )
     except Exception as e:
         db.update_job(job_id, status="error", error=str(e))
         await call.message.answer(f"❌ Clone failed: {e}")
@@ -130,7 +153,7 @@ async def cb_clone_dest(call: CallbackQuery, state: FSMContext):
     await state.set_state(CloneStates.choosing_destination)
     await state.update_data(clone_job_id=job_id)
     await call.message.answer("📁 Send the destination folder link (or paste the folder ID). Send /cancel to abort.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(CloneStates.choosing_destination)
@@ -153,13 +176,13 @@ async def cb_clone_cancel(call: CallbackQuery):
     job_id = int(call.data.split(":")[-1])
     db.update_job(job_id, status="cancelled")
     await call.message.edit_text("❌ Clone cancelled.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data == "menu:clone")
 async def cb_menu_clone(call: CallbackQuery, state: FSMContext):
     await cmd_clone(user_message(call), CommandObject(command="clone", args=None), state)
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(Command("cancelclone"))

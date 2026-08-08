@@ -5,7 +5,7 @@ from aiogram.types import Message, CallbackQuery
 import database as db
 import google_auth
 import drive_service
-from utils import human_bytes, user_message
+from utils import human_bytes, safe_answer, user_message
 from bot.keyboards import login_keyboard, logout_confirm, main_menu
 
 router = Router()
@@ -35,7 +35,7 @@ async def cb_login(call: CallbackQuery):
     # the callback later tried bot.send_message(<bot's own id>, ...), which
     # Telegram rejects with "Forbidden: bot can't send messages to bot".
     await cmd_login(user_message(call))
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(Command("logout"))
@@ -57,13 +57,13 @@ async def cb_logout_confirm(call: CallbackQuery):
     db.clear_google_token(call.from_user.id)
     db.log_action(call.from_user.id, "logout")
     await call.message.edit_text("✅ Logged out. Your Google Drive account has been disconnected.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data == "auth:logout_cancel")
 async def cb_logout_cancel(call: CallbackQuery):
     await call.message.edit_text("Logout cancelled.")
-    await call.answer()
+    await safe_answer(call)
 
 
 async def cmd_me(message: Message, override_user_id: int | None = None):

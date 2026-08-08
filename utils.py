@@ -1,4 +1,10 @@
 from config import cfg
+import html
+import logging
+
+from aiogram.exceptions import TelegramBadRequest
+
+log = logging.getLogger("gdrive_bot.telegram")
 
 
 def is_admin(user_id: int) -> bool:
@@ -32,6 +38,36 @@ def human_bytes(n: int | float | None) -> str:
             return f"{n:.1f} {unit}" if unit != "B" else f"{int(n)} {unit}"
         n /= 1024
     return f"{n:.1f} PB"
+
+
+def html_link(label: str, url: str | None) -> str:
+    """Return a Telegram HTML link with both label and URL safely escaped."""
+    safe_label = html.escape(str(label), quote=False)
+    if not url:
+        return safe_label
+    return f'<a href="{html.escape(url, quote=True)}">{safe_label}</a>'
+
+
+async def safe_edit_text(message, text: str, **kwargs) -> bool:
+    """Edit a message while ignoring harmless Telegram no-op edit errors."""
+    try:
+        await message.edit_text(text, **kwargs)
+        return True
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).lower():
+            return False
+        raise
+
+
+async def safe_answer(callback, text: str | None = None, **kwargs) -> bool:
+    """Acknowledge a callback safely, including callbacks already answered."""
+    try:
+        await callback.answer(text, **kwargs)
+        return True
+    except TelegramBadRequest as exc:
+        if "query is too old" in str(exc).lower() or "query id is invalid" in str(exc).lower():
+            return False
+        raise
 
 
 def progress_bar(done: int, total: int, width: int = 12) -> str:

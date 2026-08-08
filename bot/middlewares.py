@@ -1,9 +1,10 @@
+import asyncio
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import TelegramObject, Message, CallbackQuery
 
 import database as db
-from utils import is_admin
+from utils import is_admin, safe_answer
 
 
 async def _reply(event: TelegramObject, text: str) -> None:
@@ -21,7 +22,7 @@ async def _reply(event: TelegramObject, text: str) -> None:
         # acknowledge the callback so the spinner on the button clears.
         if event.message:
             await event.message.answer(text)
-        await event.answer()
+        await safe_answer(event)
 
 
 class GateMiddleware(BaseMiddleware):
@@ -42,16 +43,27 @@ class GateMiddleware(BaseMiddleware):
         if is_admin(user.id):
             return await handler(event, data)
 
-        db_user = db.get_user(user.id)
+        db_user = await asyncio.to_thread(db.get_user, user.id)
         if db_user and db_user.get("is_banned"):
             return  # silently drop
 
-        if db.get_state("bot_enabled") == "0":
+        bot_enabled = await asyncio.to_thread(db.get_state, "bot_enabled")
+        if bot_enabled == "0":
             await _reply(event, "🔴 The bot is currently disabled by the admin. Please try again later.")
             return
 
-        if db.get_state("maintenance") == "1":
+        maintenance = await asyncio.to_thread(db.get_state, "maintenance")
+        if maintenance == "1":
             await _reply(event, "🛠️ The bot is under maintenance. Please try again shortly.")
             return
 
+        return await handler(event, data)
+
+
+class CallbackAckMiddleware(BaseMiddleware):
+    """Clear Telegram's button spinner before slow handler work starts."""
+
+    async def __call__(self, handler, event, data):
+        if isinstance(event, CallbackQuery):
+            await safe_answer(event)
         return await handler(event, data)

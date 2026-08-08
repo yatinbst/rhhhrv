@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery
 
 import database as db
 from config import cfg
-from utils import human_bytes, user_message
+from utils import human_bytes, safe_answer, user_message
 
 router = Router()
 
@@ -45,7 +45,7 @@ async def cmd_stats(message: Message):
 @router.callback_query(F.data == "menu:stats")
 async def cb_menu_stats(call: CallbackQuery):
     await cmd_stats(user_message(call))
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(Command("usage"))

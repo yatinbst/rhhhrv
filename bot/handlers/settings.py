@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 import database as db
-from utils import user_message
+from utils import safe_answer, user_message
 from bot.keyboards import settings_menu
 from bot.states import SettingsStates
 
@@ -31,7 +31,7 @@ async def cmd_settings(message: Message):
 @router.callback_query(F.data == "menu:settings")
 async def cb_menu_settings(call: CallbackQuery):
     await cmd_settings(user_message(call))
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data == "settings:notifications")
@@ -41,7 +41,7 @@ async def cb_toggle_notifications(call: CallbackQuery):
     db.update_user_field(call.from_user.id, "notifications", new_val)
     user = db.get_user(call.from_user.id)
     await call.message.edit_text(_settings_text(user), reply_markup=settings_menu())
-    await call.answer(f"Notifications {'ON' if new_val else 'OFF'}")
+    await safe_answer(call, f"Notifications {'ON' if new_val else 'OFF'}")
 
 
 @router.callback_query(F.data == "settings:default_drive")
@@ -50,14 +50,14 @@ async def cb_default_drive(call: CallbackQuery):
     db.update_user_field(call.from_user.id, "default_drive", "My Drive")
     user = db.get_user(call.from_user.id)
     await call.message.edit_text(_settings_text(user), reply_markup=settings_menu())
-    await call.answer("Default drive set to My Drive")
+    await safe_answer(call, "Default drive set to My Drive")
 
 
 @router.callback_query(F.data == "settings:default_folder")
 async def cb_default_folder(call: CallbackQuery, state: FSMContext):
     await state.set_state(SettingsStates.waiting_default_folder)
     await call.message.answer("📁 Send the name for your default upload folder.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(SettingsStates.waiting_default_folder)
@@ -74,7 +74,7 @@ async def cb_language(call: CallbackQuery):
     db.update_user_field(call.from_user.id, "language", "English")
     user = db.get_user(call.from_user.id)
     await call.message.edit_text(_settings_text(user), reply_markup=settings_menu())
-    await call.answer("Language set to English")
+    await safe_answer(call, "Language set to English")
 
 
 @router.message(Command("notifications"))

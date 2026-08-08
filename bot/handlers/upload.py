@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 import database as db
 import drive_service
 from config import cfg
-from utils import human_bytes, user_message
+from utils import html_link, human_bytes, progress_bar, safe_answer, safe_edit_text, user_message
 from bot.states import UploadStates
 from bot.keyboards import duplicate_confirm
 
@@ -94,7 +94,7 @@ async def cmd_upload(message: Message, state: FSMContext):
 @router.callback_query(F.data == "menu:upload")
 async def cb_upload(call: CallbackQuery, state: FSMContext):
     await cmd_upload(user_message(call), state)
-    await call.answer()
+    await safe_answer(call)
 
 
 def _duplicate_warning_text(filename: str, size: int, candidate: dict, extra_count: int) -> str:
@@ -132,10 +132,26 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
                             filename: str, size: int, folder_id: str, user_id: int):
     """Actually uploads local_path to Drive, updates the job/stats, and reports back."""
     try:
-        await status_msg.edit_text(f"⬆️ Uploading *{filename}* to Drive...", parse_mode="Markdown")
+        await status_msg.edit_text(
+            f"⬆️ Uploading {html.escape(filename)} to Drive...\n{progress_bar(0, 100)}",
+            parse_mode="HTML",
+        )
+        loop = asyncio.get_running_loop()
+        last_update = [0.0]
 
         def progress(pct):
             db.update_job(job_id, progress=pct * 100)
+            now = time.monotonic()
+            if pct >= 1 or now - last_update[0] < 1.5:
+                return
+            last_update[0] = now
+            update = safe_edit_text(
+                status_msg,
+                f"⬆️ Uploading {html.escape(filename)} to Drive...\n"
+                f"{progress_bar(int(pct * 100), 100)}",
+                parse_mode="HTML",
+            )
+            asyncio.run_coroutine_threadsafe(update, loop)
 
         def do_upload():
             return drive_service.upload_local_file(token, local_path, filename, folder_id, progress_cb=progress)
@@ -146,13 +162,21 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
         db.increment_stat(user_id, uploads=1, uploaded_bytes=size or 0)
         db.log_action(user_id, "upload", filename)
 
+        result_name = result.get("name", filename)
+        link = result.get("webViewLink")
+        if not link and result.get("id"):
+            try:
+                link = await asyncio.to_thread(drive_service.get_link, token, result["id"])
+            except Exception:
+                link = None
         await status_msg.edit_text(
-            f"✅ Uploaded successfully!\n\n📄 {html.escape(result.get('name', filename))}\n"
-            f"💾 {human_bytes(size)}\n🔗 {result.get('webViewLink', 'link unavailable')}"
+            f"✅ Uploaded successfully!\n\n📄 {html_link(result_name, link)}\n"
+            f"💾 {human_bytes(size)}",
+            parse_mode="HTML",
         )
     except Exception as e:
         db.update_job(job_id, status="error", error=str(e))
-        await status_msg.edit_text(f"❌ Upload failed: {e}")
+        await status_msg.edit_text(f"❌ Upload failed: {html.escape(str(e))}", parse_mode="HTML")
     finally:
         if os.path.exists(local_path):
             os.remove(local_path)
@@ -238,13 +262,13 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
 async def cb_duplicate_decision(call: CallbackQuery, state: FSMContext):
     parts = (call.data or "").split(":", 2)
     if len(parts) != 3 or parts[1] not in {"cancel", "use", "upload"}:
-        await call.answer("Invalid upload decision.", show_alert=True)
+        await safe_answer(call, "Invalid upload decision.", show_alert=True)
         return
     _, action, job_id_str = parts
     try:
         job_id = int(job_id_str)
     except ValueError:
-        await call.answer("Invalid upload decision.", show_alert=True)
+        await safe_answer(call, "Invalid upload decision.", show_alert=True)
         return
 
     # Claim the entry before doing any I/O, so repeated taps cannot process it
@@ -255,11 +279,14 @@ async def cb_duplicate_decision(call: CallbackQuery, state: FSMContext):
     async with _pending_lock:  # FIX #3: lock before mutating _pending
         pending = _pending.pop(job_id, None)
 
-    if not pending:
-        await call.answer("This upload session has expired. Please resend the file.", show_alert=True)
+    if not pending or pending["user_id"] != call.from_user.id:
+        if pending:
+            async with _pending_lock:
+                _pending[job_id] = pending
+        await safe_answer(call, "This upload session has expired. Please resend the file.", show_alert=True)
         return
 
-    await call.answer()
+    await safe_answer(call)
     local_path = pending["local_path"]
 
     if action == "cancel":
@@ -285,7 +312,7 @@ async def cb_duplicate_decision(call: CallbackQuery, state: FSMContext):
 
         await call.message.edit_text(
             "♻️ Using the existing file — nothing new was uploaded.\n\n"
-            f"📄 {html.escape(candidate['name'])}\n📁 {html.escape(candidate['folder_path'])}\n🔗 {link}"
+            f"📄 {html_link(candidate['name'], link)}\n📁 {html.escape(candidate['folder_path'])}"
         )
         return
 

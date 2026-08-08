@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 
 import database as db
 import drive_service
-from utils import human_bytes, user_message
+from utils import html_link, human_bytes, safe_answer, user_message
 from bot.keyboards import drive_browser, file_actions, delete_confirm, share_menu
 from bot.states import DriveStates
 
@@ -55,7 +55,7 @@ async def cmd_drive(message: Message, state: FSMContext):
 @router.callback_query(F.data == "menu:drive")
 async def cb_menu_drive(call: CallbackQuery, state: FSMContext):
     await cmd_drive(user_message(call), state)
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data.startswith("drive:open:"))
@@ -63,7 +63,7 @@ async def cb_drive_open(call: CallbackQuery, state: FSMContext):
     target_id = call.data.split(":")[-1]
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
 
     meta = drive_service.get_file_meta(token, target_id)
@@ -81,7 +81,7 @@ async def cb_drive_open(call: CallbackQuery, state: FSMContext):
     else:
         size = human_bytes(int(meta.get("size", 0) or 0))
         await call.message.answer(f"📄 {meta['name']}\n💾 {size}", reply_markup=file_actions(target_id))
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data.startswith("drive:mkdir:"))
@@ -90,7 +90,7 @@ async def cb_drive_mkdir(call: CallbackQuery, state: FSMContext):
     await state.set_state(DriveStates.waiting_mkdir_name)
     await state.update_data(mkdir_parent=folder_id)
     await call.message.answer("📁 Send the name for the new folder.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(DriveStates.waiting_mkdir_name)
@@ -159,7 +159,7 @@ async def cb_rename_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(DriveStates.waiting_rename)
     await state.update_data(rename_id=file_id)
     await call.message.answer("✏️ Send the new name.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(DriveStates.waiting_rename)
@@ -172,8 +172,12 @@ async def receive_rename(message: Message, state: FSMContext):
         return
     token = json.loads(user["google_token"])
     result = drive_service.rename(token, file_id, message.text.strip())
+    link = drive_service.get_file_link(token, file_id)
     db.log_action(message.from_user.id, "rename", result["name"])
-    await message.answer(f"✅ Renamed to: {result['name']}")
+    await message.answer(
+        f"✅ Renamed to: {html_link(result['name'], link)}",
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data.startswith("drive:move:"))
@@ -182,7 +186,7 @@ async def cb_move_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(DriveStates.waiting_move_target)
     await state.update_data(move_id=file_id)
     await call.message.answer("➡️ Send the destination folder link/ID.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(DriveStates.waiting_move_target)
@@ -209,7 +213,7 @@ async def cb_copy_start(call: CallbackQuery, state: FSMContext):
     await state.set_state(DriveStates.waiting_copy_target)
     await state.update_data(copy_id=file_id)
     await call.message.answer("📋 Send the destination folder link/ID (or send /cancel to copy in place).")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.message(DriveStates.waiting_copy_target)
@@ -231,7 +235,7 @@ async def receive_copy_target(message: Message, state: FSMContext):
 async def cb_delete_confirm(call: CallbackQuery):
     file_id = call.data.split(":")[-1]
     await call.message.answer("🗑️ Are you sure you want to delete this?", reply_markup=delete_confirm(file_id))
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data.startswith("drive:delete:"))
@@ -239,18 +243,18 @@ async def cb_delete(call: CallbackQuery):
     file_id = call.data.split(":")[-1]
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
     drive_service.delete(token, file_id)
     db.log_action(call.from_user.id, "delete", file_id)
     await call.message.edit_text("✅ Deleted.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data.startswith("drive:cancel:"))
 async def cb_drive_cancel(call: CallbackQuery):
     await call.message.edit_text("Cancelled.")
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data.startswith("drive:link:"))
@@ -258,12 +262,12 @@ async def cb_link(call: CallbackQuery):
     file_id = call.data.split(":")[-1]
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
     link = drive_service.get_link(token, file_id)
     db.log_action(call.from_user.id, "link", file_id)
     await call.message.answer(f"🔗 {link}")
-    await call.answer()
+    await safe_answer(call)
 
 
 def _share_text(name: str, status: dict) -> str:
@@ -280,12 +284,12 @@ async def cb_share_menu(call: CallbackQuery):
     file_id = call.data.split(":")[-1]
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
     meta = drive_service.get_file_meta(token, file_id)
     status = drive_service.get_sharing_status(token, file_id)
     await call.message.answer(_share_text(meta["name"], status), reply_markup=share_menu(file_id, status))
-    await call.answer()
+    await safe_answer(call)
 
 
 @router.callback_query(F.data.startswith("drive:share_type:"))
@@ -293,7 +297,7 @@ async def cb_share_type(call: CallbackQuery):
     _, _, access, file_id = call.data.split(":")
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
 
     if access == "anyone":
@@ -304,7 +308,7 @@ async def cb_share_type(call: CallbackQuery):
     meta = drive_service.get_file_meta(token, file_id)
     db.log_action(call.from_user.id, "share", f"{file_id}:{access}")
     await call.message.edit_text(_share_text(meta["name"], status), reply_markup=share_menu(file_id, status))
-    await call.answer(f"Access set to {'Anyone with link' if access == 'anyone' else 'Restricted'}")
+    await safe_answer(call, f"Access set to {'Anyone with link' if access == 'anyone' else 'Restricted'}")
 
 
 @router.callback_query(F.data.startswith("drive:share_role:"))
@@ -312,14 +316,14 @@ async def cb_share_role(call: CallbackQuery):
     _, _, role, file_id = call.data.split(":")
     token = db.get_google_token(call.from_user.id)
     if not token:
-        await call.answer("☁️ Connect your Google Drive first with /login.", show_alert=True)
+        await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
 
     status = drive_service.set_anyone_permission(token, file_id, role=role)
     meta = drive_service.get_file_meta(token, file_id)
     db.log_action(call.from_user.id, "share_role", f"{file_id}:{role}")
     await call.message.edit_text(_share_text(meta["name"], status), reply_markup=share_menu(file_id, status))
-    await call.answer(f"Role set to {drive_service.ROLE_LABELS.get(role, role)}")
+    await safe_answer(call, f"Role set to {drive_service.ROLE_LABELS.get(role, role)}")
 
 
 @router.message(Command("link"))
@@ -434,4 +438,4 @@ async def cmd_search(message: Message, command: CommandObject):
 @router.callback_query(F.data == "menu:search")
 async def cb_menu_search(call: CallbackQuery):
     await call.message.answer("🔍 Use: /search <query>")
-    await call.answer()
+    await safe_answer(call)

@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
 import database as db
-from utils import human_bytes
+from utils import human_bytes, safe_answer, user_message
 from bot.keyboards import main_menu, help_menu
 import drive_service
 
@@ -76,8 +76,8 @@ async def cmd_help(message: Message):
 
 @router.callback_query(F.data == "menu:help")
 async def cb_help(call: CallbackQuery):
-    await cmd_help(call.message)
-    await call.answer()
+    await cmd_help(user_message(call))
+    await safe_answer(call)
 
 
 @router.message(Command("cancel"))
@@ -105,4 +105,4 @@ async def cmd_status(message: Message):
 async def cb_account(call: CallbackQuery):
     from .auth import cmd_me
     await cmd_me(call.message, override_user_id=call.from_user.id)
-    await call.answer()
+    await safe_answer(call)

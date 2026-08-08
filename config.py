@@ -1,10 +1,12 @@
 import os
 import logging
+import shutil
 from dotenv import load_dotenv
 
 load_dotenv()
 
 log = logging.getLogger("gdrive_bot.config")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def _detect_public_base_url() -> str:
@@ -91,8 +93,8 @@ class Config:
     )
 
     # Storage
-    DB_PATH = os.getenv("DB_PATH", "bot_data.db")
-    DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "downloads")
+    DB_PATH = os.getenv("DB_PATH", os.path.join(BASE_DIR, "data", "bot_data.sqlite3"))
+    DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", os.path.join(BASE_DIR, "downloads"))
     DEFAULT_UPLOAD_FOLDER_NAME = "Gdrive HR"
 
     # Default sharing permission applied when a link is generated
@@ -118,6 +120,16 @@ cfg = Config()
 _db_dir = os.path.dirname(os.path.abspath(cfg.DB_PATH))
 os.makedirs(_db_dir, exist_ok=True)
 os.makedirs(cfg.DOWNLOAD_DIR, exist_ok=True)
+
+# Preserve installations that used the old root-level database path when the
+# new persistent data directory is introduced.
+_legacy_db = os.path.join(BASE_DIR, "bot_data.db")
+if not os.path.exists(cfg.DB_PATH) and os.path.isfile(_legacy_db):
+    try:
+        shutil.copy2(_legacy_db, cfg.DB_PATH)
+        log.info("Migrated legacy database to %s", cfg.DB_PATH)
+    except OSError:
+        log.exception("Could not migrate legacy database from %s", _legacy_db)
 
 log.info(
     "Public base URL: %s (%s) | webhook mode: %s | oauth redirect: %s",

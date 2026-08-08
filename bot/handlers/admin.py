@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from aiogram import Router, F, Bot
@@ -144,16 +145,22 @@ async def receive_broadcast(message: Message, state: FSMContext):
 async def _do_broadcast(message: Message, text: str):
     bot: Bot = message.bot
     users = db.all_users()
-    sent, failed = 0, 0
     status = await message.answer(f"📢 Broadcasting to {len(users)} users...")
-    for u in users:
-        if u["is_banned"]:
-            continue
-        try:
-            await bot.send_message(u["user_id"], f"📢 ANNOUNCEMENT\n\n{text}")
-            sent += 1
-        except Exception:
-            failed += 1
+    semaphore = asyncio.Semaphore(10)
+
+    async def send_one(user):
+        if user["is_banned"]:
+            return False
+        async with semaphore:
+            try:
+                await bot.send_message(user["user_id"], f"📢 ANNOUNCEMENT\n\n{text}")
+                return True
+            except Exception:
+                return False
+
+    results = await asyncio.gather(*(send_one(user) for user in users))
+    sent = sum(results)
+    failed = len(results) - sent - sum(1 for user in users if user["is_banned"])
     await status.edit_text(f"✅ Broadcast done. Sent: {sent}, Failed: {failed}")
 
 

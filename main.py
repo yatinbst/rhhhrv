@@ -12,7 +12,12 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, BotCommandScopeChat, BotCommandScopeDefault
+from aiogram.types import (
+    BotCommand,
+    BotCommandScopeAllPrivateChats,
+    BotCommandScopeChat,
+    BotCommandScopeDefault,
+)
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -20,7 +25,7 @@ import database as db
 import google_auth
 from config import cfg, _detect_public_base_url
 from bot.handlers import register_all_routers
-from bot.middlewares import GateMiddleware
+from bot.middlewares import CallbackAckMiddleware, GateMiddleware
 
 db.init_db()
 
@@ -33,6 +38,7 @@ if not cfg.BOT_TOKEN:
 bot = Bot(token=cfg.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher(storage=MemoryStorage())
 dp.message.middleware(GateMiddleware())
+dp.callback_query.middleware(CallbackAckMiddleware())
 dp.callback_query.middleware(GateMiddleware())
 register_all_routers(dp)
 
@@ -101,11 +107,14 @@ async def _set_bot_commands():
     yet would otherwise fail the whole call) so it never blocks startup."""
     try:
         await bot.set_my_commands(DEFAULT_COMMANDS, scope=BotCommandScopeDefault())
+        # This scope takes precedence over the default in private chats and
+        # guarantees regular users never inherit an old admin command menu.
+        await bot.set_my_commands(DEFAULT_COMMANDS, scope=BotCommandScopeAllPrivateChats())
         log.info("Set %d default bot commands", len(DEFAULT_COMMANDS))
     except Exception:
         log.exception("Failed to set default bot commands")
 
-    for admin_id in cfg.ADMIN_IDS:
+    async def set_admin_commands(admin_id: int):
         try:
             await bot.set_my_commands(
                 DEFAULT_COMMANDS + ADMIN_COMMANDS,
@@ -116,6 +125,10 @@ async def _set_bot_commands():
                 "Couldn't set admin command menu for %s (they may not have "
                 "started a chat with the bot yet)", admin_id
             )
+
+    # Admin menus are independent chat scopes; configure them concurrently so
+    # a long Telegram round trip for one admin does not delay startup.
+    await asyncio.gather(*(set_admin_commands(admin_id) for admin_id in cfg.ADMIN_IDS))
 
 
 async def _configure_webhook_or_poll():
