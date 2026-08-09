@@ -110,6 +110,7 @@ class Config:
     DUPLICATE_CHECK_ENABLED = os.getenv("DUPLICATE_CHECK_ENABLED", "true").lower() == "true"
     # How many Drive-wide candidates to inspect per upload
     DUPLICATE_SEARCH_LIMIT = int(os.getenv("DUPLICATE_SEARCH_LIMIT", "5"))
+    UPLOAD_PARALLELISM = max(1, int(os.getenv("UPLOAD_PARALLELISM", "2")))
 
 
 cfg = Config()

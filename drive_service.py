@@ -356,7 +356,9 @@ def upload_local_file(user_token: dict, local_path: str, filename: str, parent_i
         raise RuntimeError(f"Drive API error uploading '{filename}': {reason}") from e
 
 
-DRIVE_LINK_RE = re.compile(r"/(?:folders|d|file/d)/([a-zA-Z0-9_-]+)")
+# Supports Drive files, Sheets, Docs, Slides, Forms, and published Forms
+# links, whose IDs use the /d/e/<id>/ URL shape.
+DRIVE_LINK_RE = re.compile(r"/(?:folders|d/e|file/d|d)/([a-zA-Z0-9_-]+)")
 DRIVE_ID_QUERY_RE = re.compile(r"[?&]id=([a-zA-Z0-9_-]+)")
 
 

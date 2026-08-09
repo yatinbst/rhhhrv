@@ -73,6 +73,8 @@ async def cmd_help(message: Message):
         "/search — Search Drive\n\n"
         "👤 ACCOUNT\n"
         "/login — Connect Google Drive\n"
+        "/accounts — List connected Google accounts\n"
+        "/useaccount — Choose upload account\n"
         "/logout — Disconnect Drive\n"
         "/me — My Drive information\n"
         "/stats — My statistics\n"

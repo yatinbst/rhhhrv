@@ -55,6 +55,8 @@ DEFAULT_COMMANDS = [
     BotCommand(command="start", description="Open the main menu"),
     BotCommand(command="help", description="List everything the bot can do"),
     BotCommand(command="login", description="Connect your Google Drive"),
+    BotCommand(command="accounts", description="List connected Google accounts"),
+    BotCommand(command="useaccount", description="Choose the default upload account"),
     BotCommand(command="logout", description="Disconnect your Google Drive"),
     BotCommand(command="me", description="My Drive info"),
     BotCommand(command="upload", description="Upload a file to Drive"),

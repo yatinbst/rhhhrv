@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, CallbackQuery
 
 import database as db
@@ -15,13 +15,10 @@ router = Router()
 async def cmd_login(message: Message):
     db.upsert_user(message.from_user.id, message.from_user.username)
     user = db.get_user(message.from_user.id)
-    if user and user.get("google_token"):
-        await message.answer("✅ You're already connected to Google Drive. Use /logout first to switch accounts.")
-        return
     auth_url = google_auth.build_auth_url(state=str(message.from_user.id))
     text = (
         "☁️ Google Drive Login\n\n"
-        "Connect your Google Drive account to start uploading and cloning files."
+        "Connect another Google Drive account. Use /accounts to view saved accounts."
     )
     await message.answer(text, reply_markup=login_keyboard(auth_url))
 
@@ -50,6 +47,36 @@ async def cmd_logout(message: Message):
         "Logging out will disconnect this Google Drive account from the bot."
     )
     await message.answer(text, reply_markup=logout_confirm())
+
+
+@router.message(Command("accounts"))
+async def cmd_accounts(message: Message):
+    accounts = db.get_google_accounts(message.from_user.id)
+    if not accounts:
+        await message.answer("☁️ No Google accounts connected. Use /login.")
+        return
+    lines = ["☁️ CONNECTED GOOGLE ACCOUNTS\n"]
+    for index, account in enumerate(accounts, 1):
+        marker = "✅ Default" if account.get("is_default") else ""
+        lines.append(f"{index}. {account['email']} {marker}")
+    lines.append("\nUse /useaccount [email or number] to choose an upload account.")
+    await message.answer("\n".join(lines))
+
+
+@router.message(Command("useaccount"))
+async def cmd_useaccount(message: Message, command: CommandObject):
+    if not command.args:
+        await message.answer("Usage: /useaccount [email or account number]\nUse /accounts to list accounts.")
+        return
+    accounts = db.get_google_accounts(message.from_user.id)
+    reference = command.args.strip()
+    if reference.isdigit():
+        index = int(reference) - 1
+        reference = accounts[index]["email"] if 0 <= index < len(accounts) else reference
+    if not db.set_default_account(message.from_user.id, reference):
+        await message.answer("❌ Account not found. Use /accounts to list connected accounts.")
+        return
+    await message.answer(f"✅ Default upload account set to: {reference}")
 
 
 @router.callback_query(F.data == "auth:logout_confirm")

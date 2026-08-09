@@ -65,6 +65,16 @@ def init_db():
                 updated_at INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS google_accounts (
+                account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                token TEXT NOT NULL,
+                is_default INTEGER DEFAULT 0,
+                created_at INTEGER,
+                UNIQUE(user_id, email)
+            );
+
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER,
@@ -84,6 +94,14 @@ def init_db():
         )
         conn.execute(
             "INSERT OR IGNORE INTO bot_state (key, value) VALUES ('maintenance', '0')"
+        )
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO google_accounts (user_id, email, token, is_default, created_at)
+            SELECT user_id, google_email, google_token, 1, COALESCE(created_at, ?)
+            FROM users WHERE google_token IS NOT NULL AND google_email IS NOT NULL
+            """,
+            (int(time.time()),),
         )
 
 
@@ -110,18 +128,76 @@ def get_user(user_id: int):
 
 def set_google_token(user_id: int, token_json: dict, email: str):
     with get_conn() as conn:
+        existing = conn.execute(
+            "SELECT account_id FROM google_accounts WHERE user_id=? AND email=?",
+            (user_id, email),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE google_accounts SET token=? WHERE account_id=?",
+                (json.dumps(token_json), existing["account_id"]),
+            )
+        else:
+            has_default = conn.execute(
+                "SELECT 1 FROM google_accounts WHERE user_id=? AND is_default=1 LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            conn.execute(
+                "INSERT INTO google_accounts (user_id,email,token,is_default,created_at) VALUES (?,?,?,?,?)",
+                (user_id, email, json.dumps(token_json), 0 if has_default else 1, int(time.time())),
+            )
+        selected = conn.execute(
+            "SELECT email,token FROM google_accounts WHERE user_id=? AND is_default=1",
+            (user_id,),
+        ).fetchone()
         conn.execute(
             "UPDATE users SET google_token=?, google_email=? WHERE user_id=?",
-            (json.dumps(token_json), email, user_id),
+            (selected["token"], selected["email"], user_id),
         )
 
 
 def clear_google_token(user_id: int):
     with get_conn() as conn:
+        account = conn.execute(
+            "SELECT account_id FROM google_accounts WHERE user_id=? AND is_default=1",
+            (user_id,),
+        ).fetchone()
+        if account:
+            conn.execute("DELETE FROM google_accounts WHERE account_id=?", (account["account_id"],))
+            replacement = conn.execute(
+                "SELECT account_id,email,token FROM google_accounts WHERE user_id=? ORDER BY account_id LIMIT 1",
+                (user_id,),
+            ).fetchone()
+            if replacement:
+                conn.execute("UPDATE google_accounts SET is_default=1 WHERE account_id=?", (replacement["account_id"],))
+                conn.execute("UPDATE users SET google_token=?, google_email=? WHERE user_id=?", (replacement["token"], replacement["email"], user_id))
+                return
         conn.execute(
             "UPDATE users SET google_token=NULL, google_email=NULL WHERE user_id=?",
             (user_id,),
         )
+
+
+def get_google_accounts(user_id: int):
+    with get_conn() as conn:
+        return [dict(row) for row in conn.execute(
+            "SELECT account_id,email,is_default,created_at FROM google_accounts WHERE user_id=? ORDER BY account_id",
+            (user_id,),
+        ).fetchall()]
+
+
+def set_default_account(user_id: int, account_ref: str) -> bool:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT account_id,email,token FROM google_accounts WHERE user_id=? AND (email=? OR CAST(account_id AS TEXT)=?)",
+            (user_id, account_ref, account_ref),
+        ).fetchone()
+        if not row:
+            return False
+        conn.execute("UPDATE google_accounts SET is_default=0 WHERE user_id=?", (user_id,))
+        conn.execute("UPDATE google_accounts SET is_default=1 WHERE account_id=?", (row["account_id"],))
+        conn.execute("UPDATE users SET google_token=?, google_email=? WHERE user_id=?", (row["token"], row["email"], user_id))
+        return True
 
 
 def get_google_token(user_id: int):
@@ -295,6 +371,7 @@ if cfg.MONGO_URI:
     from mongo_database import (  # noqa: E402
         all_active_jobs, all_users, clear_google_token, count_users,
         count_usage_since, create_job, get_google_token, get_job, get_state,
+        get_google_accounts, set_default_account,
         get_user, increment_stat, init_db, log_action, recover_interrupted_jobs,
         recent_logs, set_google_token, set_state, update_job, update_user_field,
         upsert_user, active_jobs_for_user,

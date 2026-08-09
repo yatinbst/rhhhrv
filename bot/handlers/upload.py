@@ -28,6 +28,8 @@ router = Router()
 _pending: dict[int, dict] = {}
 _pending_lock = asyncio.Lock()  # FIX #3: protect concurrent coroutine access
 _PENDING_TTL_SECONDS = 60 * 60  # 1 hour
+_upload_queues: dict[int, asyncio.Queue] = {}
+_upload_workers: dict[int, list[asyncio.Task]] = {}
 
 
 async def _cleanup_stale_pending():
@@ -72,7 +74,8 @@ async def cmd_upload(message: Message, state: FSMContext):
         return
     await state.set_state(UploadStates.waiting_file)
     await message.answer(
-        "📤 Send me the file (document, video, audio, or photo) you want to upload to Drive.\n"
+        "📤 Send one or more files (documents, videos, audio, or photos).\n"
+        "They will upload one at a time in the order received.\n"
         f"It will go to your default folder: <b>{html.escape(cfg.DEFAULT_UPLOAD_FOLDER_NAME)}</b>",
         parse_mode="HTML",
     )
@@ -172,9 +175,81 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
             os.remove(local_path)
 
 
+async def _process_queued_upload(item: dict):
+    """Run duplicate detection and upload for one queued local file."""
+    job_id = item["job_id"]
+    status_msg = item["status_msg"]
+    token = item["token"]
+    local_path = item["local_path"]
+    filename = item["filename"]
+    size = item["size"]
+    folder_id = item["folder_id"]
+    user_id = item["user_id"]
+
+    if cfg.DUPLICATE_CHECK_ENABLED:
+        check_started = time.monotonic()
+        await status_msg.edit_text("🔎 Checking for duplicates on your Drive...\nElapsed: 0s")
+        try:
+            md5 = await asyncio.to_thread(drive_service.local_md5, local_path)
+            await status_msg.edit_text(
+                f"🔎 Searching Drive metadata...\nElapsed: {format_duration(time.monotonic() - check_started)}"
+            )
+            candidates = await asyncio.to_thread(
+                drive_service.find_duplicates,
+                token, filename, size=size, md5=md5, limit=cfg.DUPLICATE_SEARCH_LIMIT,
+            )
+        except Exception:
+            log.exception("Duplicate check failed for job %s, continuing without it", job_id)
+            candidates = []
+
+        if candidates:
+            async with _pending_lock:
+                await _cleanup_stale_pending()
+                best, extra = candidates[0], len(candidates) - 1
+                _pending[job_id] = {
+                    "local_path": local_path, "filename": filename, "size": size,
+                    "folder_id": folder_id, "user_id": user_id, "md5": md5,
+                    "candidate": best, "created_at": time.time(),
+                }
+            db.update_job(job_id, status="duplicate_pending")
+            await status_msg.edit_text(
+                _duplicate_warning_text(filename, size, best, extra),
+                reply_markup=duplicate_confirm(str(job_id)), parse_mode="HTML",
+            )
+            return
+
+    await _finalize_upload(job_id, status_msg, token, local_path, filename, size, folder_id, user_id)
+
+
+async def _upload_worker(user_id: int):
+    queue = _upload_queues[user_id]
+    try:
+        while True:
+            item = await queue.get()
+            try:
+                await _process_queued_upload(item)
+            except Exception as exc:
+                log.exception("Queued upload %s failed", item.get("job_id"))
+                db.update_job(item["job_id"], status="error", error=str(exc))
+                await item["status_msg"].edit_text(f"❌ Upload failed: {html.escape(str(exc))}", parse_mode="HTML")
+            finally:
+                queue.task_done()
+    except asyncio.CancelledError:
+        raise
+
+
+def _ensure_upload_worker(user_id: int):
+    workers = [worker for worker in _upload_workers.get(user_id, []) if not worker.done()]
+    if not workers:
+        _upload_queues.setdefault(user_id, asyncio.Queue())
+        workers = [asyncio.create_task(_upload_worker(user_id))
+                   for _ in range(cfg.UPLOAD_PARALLELISM)]
+        _upload_workers[user_id] = workers
+    return _upload_queues[user_id]
+
+
 @router.message(UploadStates.waiting_file, F.document | F.video | F.audio | F.photo)
 async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
-    await state.clear()
     user = await _ensure_connected(message)
     if not user:
         return
@@ -192,7 +267,7 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
 
     folder_id = await _ensure_default_folder(user, token)
     job_id = db.create_job(message.from_user.id, "upload", filename, folder_id)
-    db.update_job(job_id, status="running")
+    db.update_job(job_id, status="queued")
 
     status_msg = await message.answer(
         f"⬇️ Downloading <b>{html.escape(filename)}</b>...",
@@ -230,52 +305,19 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
         with suppress(asyncio.CancelledError):
             await download_task
 
-    # ---- Duplicate detection -------------------------------------------------
-    if cfg.DUPLICATE_CHECK_ENABLED:
-        check_started = time.monotonic()
+    queue = _ensure_upload_worker(message.from_user.id)
+    position = queue.qsize()
+    await queue.put({
+        "job_id": job_id, "status_msg": status_msg, "token": token,
+        "local_path": local_path, "filename": filename, "size": size,
+        "folder_id": folder_id, "user_id": message.from_user.id,
+    })
+    if position:
         await status_msg.edit_text(
-            "🔎 Checking for duplicates on your Drive...\nElapsed: 0s"
+            f"📥 Queued: <b>{html.escape(filename)}</b>\n"
+            f"Position: {position + 1}\n💾 {human_bytes(size)}",
+            parse_mode="HTML",
         )
-        try:
-            md5 = await asyncio.to_thread(drive_service.local_md5, local_path)
-            await status_msg.edit_text(
-                f"🔎 Searching Drive metadata...\nElapsed: {format_duration(time.monotonic() - check_started)}"
-            )
-
-            def search():
-                return drive_service.find_duplicates(
-                    token, filename, size=size, md5=md5, limit=cfg.DUPLICATE_SEARCH_LIMIT
-                )
-
-            candidates = await asyncio.to_thread(search)
-        except Exception:
-            log.exception("Duplicate check failed for job %s, continuing without it", job_id)
-            candidates = []
-
-        if candidates:
-            async with _pending_lock:  # FIX #3: lock before mutating _pending
-                await _cleanup_stale_pending()
-                best, extra = candidates[0], len(candidates) - 1
-                _pending[job_id] = {
-                    "local_path": local_path,
-                    "filename": filename,
-                    "size": size,
-                    "folder_id": folder_id,
-                    "user_id": message.from_user.id,
-                    "md5": md5,
-                    "candidate": best,
-                    "created_at": time.time(),
-                }
-            db.update_job(job_id, status="duplicate_pending")
-            await status_msg.edit_text(
-                _duplicate_warning_text(filename, size, best, extra),
-                reply_markup=duplicate_confirm(str(job_id)),
-                parse_mode="HTML",
-            )
-            return
-
-    # No duplicate found (or checking disabled) -> upload straight away.
-    await _finalize_upload(job_id, status_msg, token, local_path, filename, size, folder_id, message.from_user.id)
 
 
 @router.callback_query(F.data.startswith("dup:"))

@@ -51,18 +51,36 @@ def get_user(user_id: int):
 
 
 def set_google_token(user_id: int, token_json: dict, email: str):
+    user = get_user(user_id) or {}
+    accounts = user.get("google_accounts", [])
+    found = False
+    for account in accounts:
+        if account.get("email") == email:
+            account["token"] = json.dumps(token_json)
+            found = True
+    if not found:
+        accounts.append({"account_id": str(len(accounts) + 1), "email": email,
+                         "token": json.dumps(token_json), "is_default": not accounts,
+                         "created_at": int(time.time())})
+    default = next((a for a in accounts if a.get("is_default")), accounts[0])
     _users.update_one(
         {"user_id": user_id},
-        {"$set": {"google_token": json.dumps(token_json), "google_email": email}},
+        {"$set": {"google_accounts": accounts,
+                  "google_token": default["token"], "google_email": default["email"]}},
         upsert=True,
     )
 
 
 def clear_google_token(user_id: int):
-    _users.update_one(
-        {"user_id": user_id},
-        {"$unset": {"google_token": "", "google_email": ""}},
-    )
+    user = get_user(user_id) or {}
+    accounts = user.get("google_accounts", [])
+    default = next((a for a in accounts if a.get("is_default")), None)
+    accounts = [a for a in accounts if not default or a.get("account_id") != default.get("account_id")]
+    if accounts:
+        accounts[0]["is_default"] = True
+        _users.update_one({"user_id": user_id}, {"$set": {"google_accounts": accounts, "google_token": accounts[0]["token"], "google_email": accounts[0]["email"]}})
+    else:
+        _users.update_one({"user_id": user_id}, {"$unset": {"google_accounts": "", "google_token": "", "google_email": ""}})
 
 
 def get_google_token(user_id: int):
@@ -74,6 +92,24 @@ def get_google_token(user_id: int):
     except (json.JSONDecodeError, TypeError):
         clear_google_token(user_id)
         return None
+
+
+def get_google_accounts(user_id: int):
+    user = get_user(user_id) or {}
+    return [{k: account.get(k) for k in ("account_id", "email", "is_default", "created_at")}
+            for account in user.get("google_accounts", [])]
+
+
+def set_default_account(user_id: int, account_ref: str) -> bool:
+    user = get_user(user_id) or {}
+    accounts = user.get("google_accounts", [])
+    selected = next((a for a in accounts if a.get("email") == account_ref or str(a.get("account_id")) == account_ref), None)
+    if not selected:
+        return False
+    for account in accounts:
+        account["is_default"] = account is selected
+    _users.update_one({"user_id": user_id}, {"$set": {"google_accounts": accounts, "google_token": selected["token"], "google_email": selected["email"]}})
+    return True
 
 
 def update_user_field(user_id: int, field: str, value):

@@ -94,9 +94,11 @@ docker run --rm -p 8080:8080 --env-file .env gdrive-bot
 
 ## What's implemented
 
-- **Auth**: `/login`, `/logout`, `/me` — full OAuth2 flow, refresh-token based
-  so users don't need to re-login.
-- **Upload**: `/upload` (send a file after), `/status`
+- **Auth**: `/login`, `/logout`, `/me`, `/accounts`, `/useaccount` — multiple
+   Google OAuth accounts with a selectable default upload/clone account.
+- **Upload**: `/upload` (send one or more files after), `/status` — files are
+   queued per user and uploaded with bounded parallel workers. Set
+   `UPLOAD_PARALLELISM` to control concurrency.
   — real resumable upload to Drive into a `Gdrive HR` folder (auto-created).
   - **Duplicate detection**: before uploading, the bot hashes the incoming
     file (MD5) and searches the user's whole Drive by name/size/hash. If a
