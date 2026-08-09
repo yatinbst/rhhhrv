@@ -32,6 +32,11 @@ cp .env.example .env
 # OAUTH_REDIRECT_URI, WEBHOOK_BASE_URL
 ```
 
+For shared persistent storage across restarts or multiple bot instances, set
+`MONGO_URI` and optionally `MONGO_DB_NAME=gdrive_bot`. MongoDB stores users,
+Google OAuth refresh tokens, jobs, bot state, and audit history. When
+`MONGO_URI` is absent, the bot uses the local SQLite database.
+
 ## 4. Run locally (polling mode)
 
 ```bash

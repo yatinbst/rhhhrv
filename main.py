@@ -26,6 +26,7 @@ from bot.handlers import register_all_routers
 from bot.middlewares import CallbackAckMiddleware, ExceptionMiddleware, GateMiddleware, RateLimitMiddleware
 
 db.init_db()
+log.info("Database backend: %s", "MongoDB" if cfg.MONGO_URI else "SQLite")
 recovered_jobs = db.recover_interrupted_jobs()
 if recovered_jobs:
     log.warning("Marked %d interrupted job(s) after restart", recovered_jobs)

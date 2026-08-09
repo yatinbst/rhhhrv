@@ -268,6 +268,16 @@ def recent_logs(limit=30):
         return [dict(r) for r in rows]
 
 
+def count_usage_since(user_id: int, since: int):
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) c FROM history "
+            "WHERE user_id=? AND action IN ('upload','clone') AND created_at >= ?",
+            (user_id, since),
+        ).fetchone()
+        return row["c"]
+
+
 # ---------- Bot state (admin on/off, maintenance) ----------
 
 def get_state(key: str) -> str:
@@ -283,3 +293,15 @@ def set_state(key: str, value: str):
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+
+# Use MongoDB for shared persistence when configured; otherwise retain the
+# local SQLite backend for development and single-instance deployments.
+if cfg.MONGO_URI:
+    from mongo_database import (  # noqa: E402
+        all_active_jobs, all_users, clear_google_token, count_users,
+        count_usage_since, create_job, get_google_token, get_job, get_state,
+        get_user, increment_stat, init_db, log_action, recover_interrupted_jobs,
+        recent_logs, set_google_token, set_state, update_job, update_user_field,
+        upsert_user, active_jobs_for_user,
+    )

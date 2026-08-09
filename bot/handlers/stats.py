@@ -34,12 +34,8 @@ async def cb_menu_stats(call: CallbackQuery):
 @router.message(Command("usage"))
 async def cmd_usage(message: Message):
     since_midnight = int(time.time()) - (int(time.time()) % 86400)
-    with db.get_conn() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) c FROM history WHERE user_id=? AND action IN ('upload','clone') AND created_at >= ?",
-            (message.from_user.id, since_midnight),
-        ).fetchone()
-    await message.answer(f"📅 TODAY'S USAGE\n\nOperations today: {row['c']}")
+    count = db.count_usage_since(message.from_user.id, since_midnight)
+    await message.answer(f"📅 TODAY'S USAGE\n\nOperations today: {count}")
 
 
 @router.message(Command("limits"))
