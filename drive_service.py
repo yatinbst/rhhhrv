@@ -148,8 +148,24 @@ def get_sharing_status(user_token: dict, file_id: str) -> dict:
 def get_file_link(user_token: dict, file_id: str) -> str:
     with _handle_drive_errors(f"getting a link for '{file_id}'"):
         drive = get_drive(user_token)
-        f = drive.files().get(fileId=file_id, fields="webViewLink, webContentLink").execute(num_retries=3)
-        return f.get("webViewLink") or f.get("webContentLink")
+        f = drive.files().get(
+            fileId=file_id,
+            fields="id, mimeType, webViewLink, webContentLink",
+        ).execute(num_retries=3)
+        link = f.get("webViewLink") or f.get("webContentLink")
+        if link:
+            return link
+
+        native_links = {
+            "application/vnd.google-apps.spreadsheet": "https://docs.google.com/spreadsheets/d/{}/edit",
+            "application/vnd.google-apps.document": "https://docs.google.com/document/d/{}/edit",
+            "application/vnd.google-apps.presentation": "https://docs.google.com/presentation/d/{}/edit",
+            "application/vnd.google-apps.form": "https://docs.google.com/forms/d/{}/edit",
+        }
+        template = native_links.get(f.get("mimeType"))
+        if template:
+            return template.format(file_id)
+        return f"https://drive.google.com/open?id={file_id}"
 
 
 def set_anyone_permission(user_token: dict, file_id: str, role: str = None) -> dict:
@@ -272,7 +288,7 @@ def find_duplicates(user_token: dict, filename: str, size: int | None = None,
     for f in candidates.values():
         f_size = int(f.get("size", 0) or 0)
         f_md5 = f.get("md5Checksum")
-        name_match = f.get("name") == filename
+        name_match = str(f.get("name", "")).casefold() == filename.casefold()
         size_match = bool(size) and f_size == size
 
         if md5 and f_md5 and f_md5 == md5:

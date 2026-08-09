@@ -62,7 +62,14 @@ async def _process_clone_link(message: Message, user: dict, link: str):
         return
 
     is_folder = meta["mimeType"] == "application/vnd.google-apps.folder"
-    job_id = db.create_job(message.from_user.id, "clone", link.strip(), user.get("default_folder_id") or "root")
+    try:
+        destination_id = await asyncio.to_thread(
+            drive_service.ensure_default_folder, user, token
+        )
+    except Exception as exc:
+        await message.answer(f"❌ Couldn't prepare the HR Gdrive folder: {exc}")
+        return
+    job_id = db.create_job(message.from_user.id, "clone", link.strip(), destination_id)
 
     if is_folder:
         status = await message.answer("🔍 Scanning folder contents...")
@@ -117,7 +124,13 @@ async def cb_clone_go(call: CallbackQuery):
         await safe_answer(call, "☁️ Connect your Google Drive first with /login.", show_alert=True)
         return
     file_id = drive_service.extract_id_from_link(job["source"])
-    dest_id = job["dest_folder_id"] or "root"
+    dest_id = job["dest_folder_id"]
+    if not dest_id:
+        dest_id = await asyncio.to_thread(
+            drive_service.ensure_default_folder,
+            db.get_user(call.from_user.id),
+            token,
+        )
 
     db.update_job(job_id, status="running")
     await call.message.edit_text("🚀 Cloning started... this may take a while for large folders.")

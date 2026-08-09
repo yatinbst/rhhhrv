@@ -86,9 +86,20 @@ async def safe_answer(callback, text: str | None = None, **kwargs) -> bool:
         raise
 
 
-def progress_bar(done: int, total: int, width: int = 12) -> str:
+def progress_bar(
+    done: int,
+    total: int,
+    width: int = 12,
+    done_bytes: int | float | None = None,
+    total_bytes: int | float | None = None,
+) -> str:
+    """Render a percentage bar and optional transferred/total byte sizes."""
     if total <= 0:
-        return "░" * width + " 0%"
-    pct = min(done / total, 1.0)
-    filled = int(pct * width)
-    return "█" * filled + "░" * (width - filled) + f" {int(pct * 100)}%"
+        result = "░" * width + " 0%"
+    else:
+        pct = min(done / total, 1.0)
+        filled = int(pct * width)
+        result = "█" * filled + "░" * (width - filled) + f" {int(pct * 100)}%"
+    if total_bytes is not None:
+        result += f" ({human_bytes(done_bytes or 0)} / {human_bytes(total_bytes)})"
+    return result

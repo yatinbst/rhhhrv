@@ -120,7 +120,8 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
     """Actually uploads local_path to Drive, updates the job/stats, and reports back."""
     try:
         await status_msg.edit_text(
-            f"⬆️ Uploading {html.escape(filename)} to Drive...\n{progress_bar(0, 100)}",
+            f"⬆️ Uploading {html.escape(filename)} to Drive...\n"
+            f"{progress_bar(0, 100, total_bytes=size)}",
             parse_mode="HTML",
         )
         loop = asyncio.get_running_loop()
@@ -136,7 +137,7 @@ async def _finalize_upload(job_id: int, status_msg: Message, token: dict, local_
             update = safe_edit_text(
                 status_msg,
                 f"⬆️ Uploading {html.escape(filename)} to Drive...\n"
-                f"{progress_bar(int(pct * 100), 100)}\n"
+                f"{progress_bar(int(pct * 100), 100, done_bytes=pct * size, total_bytes=size)}\n"
                 f"Elapsed: {format_duration(now - started_at)}",
                 parse_mode="HTML",
             )
@@ -208,7 +209,7 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
             await safe_edit_text(
                 status_msg,
                 f"⬇️ Downloading <b>{html.escape(filename)}</b>...\n"
-                f"{progress_bar(int(percent), 100)}\n"
+                f"{progress_bar(int(percent), 100, done_bytes=downloaded, total_bytes=size)}\n"
                 f"Elapsed: {format_duration(time.monotonic() - download_started)}",
                 parse_mode="HTML",
             )
