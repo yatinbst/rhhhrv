@@ -99,10 +99,8 @@ class Config:
     DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", os.path.join(BASE_DIR, "downloads"))
     DEFAULT_UPLOAD_FOLDER_NAME = "HR Gdrive"
 
-    # Default sharing permission applied when a link is generated
-    # (Drive API values: role = reader|commenter|writer, type = anyone|restricted)
+    # Default sharing permission applied when a link is generated.
     DEFAULT_SHARE_ROLE = os.getenv("DEFAULT_SHARE_ROLE", "reader")   # reader = Viewer
-    DEFAULT_SHARE_TYPE = os.getenv("DEFAULT_SHARE_TYPE", "anyone")  # anyone = "Anyone with the link"
 
     # Limits
     FREE_UPLOAD_LIMIT_GB = float(os.getenv("FREE_UPLOAD_LIMIT_GB", "2"))

@@ -9,7 +9,7 @@ Flow:
 """
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
 # Google always returns the scopes it actually granted, which can be
 # reordered or padded with an implicit "openid"/"...userinfo.email" scope
@@ -96,9 +96,7 @@ def credentials_from_dict(data: dict) -> Credentials:
     if data.get("expiry"):
         try:
             expiry = datetime.fromisoformat(data["expiry"])
-            # Ensure the datetime is timezone-aware; google-auth compares
-            # against utcnow() which is offset-naive, so strip tzinfo if
-            # present to keep the comparison consistent.
+            # Normalize persisted expiry values for google-auth comparisons.
             if expiry.tzinfo is not None:
                 expiry = expiry.replace(tzinfo=None)
         except (ValueError, TypeError):

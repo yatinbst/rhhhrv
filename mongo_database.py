@@ -14,8 +14,7 @@ _state = _db.bot_state
 _counters = _db.counters
 
 _ALLOWED_USER_FIELDS = {
-    "notifications", "language", "timezone", "default_drive",
-    "default_folder_id", "default_folder_name", "is_banned", "is_premium",
+    "default_folder_id", "is_banned", "is_premium",
 }
 _ALLOWED_JOB_FIELDS = {
     "status", "progress", "bytes_total", "bytes_done", "error", "dest_folder_id",
@@ -38,9 +37,7 @@ def upsert_user(user_id: int, username: str | None):
         {"user_id": user_id},
         {"$set": {"username": username}, "$setOnInsert": {
             "user_id": user_id, "created_at": now,
-            "is_banned": 0, "is_premium": 0, "notifications": 1,
-            "language": "English", "timezone": "UTC", "default_drive": "My Drive",
-            "default_folder_name": cfg.DEFAULT_UPLOAD_FOLDER_NAME,
+            "is_banned": 0, "is_premium": 0,
             "uploads_count": 0, "clones_count": 0,
             "uploaded_bytes": 0, "cloned_bytes": 0,
         }},

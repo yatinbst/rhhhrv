@@ -1,10 +1,9 @@
 import re
-import io
 import hashlib
 from contextlib import contextmanager
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError  # FIX #5: needed for structured error handling
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload
 from google.auth.exceptions import RefreshError
 
 from google_auth import credentials_from_dict
@@ -89,7 +88,6 @@ def ensure_default_folder(user: dict, user_token: dict) -> str:
     match = next((folder for folder in existing if folder["name"] == folder_name), None)
     folder_id = match["id"] if match else mkdir(user_token, folder_name, "root")["id"]
     db.update_user_field(user["user_id"], "default_folder_id", folder_id)
-    db.update_user_field(user["user_id"], "default_folder_name", folder_name)
     return folder_id
 
 

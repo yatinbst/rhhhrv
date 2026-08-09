@@ -42,12 +42,7 @@ def init_db():
                 google_token TEXT,          -- JSON blob of OAuth credentials
                 is_banned INTEGER DEFAULT 0,
                 is_premium INTEGER DEFAULT 0,
-                notifications INTEGER DEFAULT 1,
-                language TEXT DEFAULT 'English',
-                timezone TEXT DEFAULT 'UTC',
-                default_drive TEXT DEFAULT 'My Drive',
                 default_folder_id TEXT,
-                default_folder_name TEXT DEFAULT 'Gdrive HR',
                 uploads_count INTEGER DEFAULT 0,
                 clones_count INTEGER DEFAULT 0,
                 uploaded_bytes INTEGER DEFAULT 0,
@@ -146,8 +141,7 @@ def get_google_token(user_id: int):
 
 def update_user_field(user_id: int, field: str, value):
     allowed = {
-        "notifications", "language", "timezone", "default_drive",
-        "default_folder_id", "default_folder_name", "is_banned", "is_premium",
+        "default_folder_id", "is_banned", "is_premium",
     }
     if field not in allowed:
         raise ValueError(f"Field not allowed: {field}")
