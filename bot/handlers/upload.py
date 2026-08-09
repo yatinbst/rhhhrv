@@ -181,14 +181,14 @@ async def handle_incoming_file(message: Message, state: FSMContext, bot: Bot):
     token = json.loads(user["google_token"])
 
     if message.document:
-        tg_file, filename, size = message.document, message.document.file_name, message.document.file_size
+        tg_file, filename, size = message.document, message.document.file_name, message.document.file_size or 0
     elif message.video:
-        tg_file, filename, size = message.video, message.video.file_name or f"video_{int(time.time())}.mp4", message.video.file_size
+        tg_file, filename, size = message.video, message.video.file_name or f"video_{int(time.time())}.mp4", message.video.file_size or 0
     elif message.audio:
-        tg_file, filename, size = message.audio, message.audio.file_name or f"audio_{int(time.time())}.mp3", message.audio.file_size
+        tg_file, filename, size = message.audio, message.audio.file_name or f"audio_{int(time.time())}.mp3", message.audio.file_size or 0
     else:
         photo = message.photo[-1]
-        tg_file, filename, size = photo, f"photo_{int(time.time())}.jpg", photo.file_size
+        tg_file, filename, size = photo, f"photo_{int(time.time())}.jpg", photo.file_size or 0
 
     folder_id = await _ensure_default_folder(user, token)
     job_id = db.create_job(message.from_user.id, "upload", filename, folder_id)

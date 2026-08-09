@@ -69,6 +69,31 @@ async def _process_clone_link(message: Message, user: dict, link: str):
     except Exception as exc:
         await message.answer(f"❌ Couldn't prepare the HR Gdrive folder: {exc}")
         return
+
+    try:
+        duplicate = await asyncio.to_thread(
+            drive_service.find_duplicate_in_folder,
+            token, destination_id, meta["name"], meta["mimeType"],
+            int(meta.get("size", 0) or 0) if not is_folder else None,
+        )
+    except Exception:
+        log.exception("Clone duplicate check failed for %s", file_id)
+        duplicate = None
+    if duplicate:
+        try:
+            duplicate_link = await asyncio.to_thread(
+                drive_service.get_file_link, token, duplicate["id"]
+            )
+        except Exception:
+            duplicate_link = duplicate.get("webViewLink")
+        await message.answer(
+            "⚠️ Duplicate detected in HR Gdrive.\n\n"
+            f"📄 {html_link(duplicate['name'], duplicate_link)}\n"
+            "Nothing was cloned.",
+            parse_mode="HTML",
+        )
+        return
+
     job_id = db.create_job(message.from_user.id, "clone", link.strip(), destination_id)
 
     if is_folder:

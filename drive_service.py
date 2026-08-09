@@ -313,6 +313,27 @@ def find_duplicates(user_token: dict, filename: str, size: int | None = None,
     return results
 
 
+def find_duplicate_in_folder(user_token: dict, parent_id: str, name: str,
+                             mime_type: str | None = None, size: int | None = None) -> dict | None:
+    """Find an existing item with the same name in one destination folder."""
+    drive = get_drive(user_token)
+    safe_name = _escape_query_value(name)
+    query = f"'{parent_id}' in parents and name = '{safe_name}' and trashed = false"
+    if mime_type == FOLDER_MIME:
+        query += f" and mimeType = '{FOLDER_MIME}'"
+    elif mime_type:
+        query += f" and mimeType = '{_escape_query_value(mime_type)}'"
+    response = drive.files().list(
+        q=query,
+        fields="files(id, name, mimeType, size, md5Checksum, webViewLink, webContentLink)",
+        pageSize=10,
+    ).execute(num_retries=3)
+    for item in response.get("files", []):
+        if size is None or int(item.get("size", 0) or 0) == size:
+            return item
+    return None
+
+
 def upload_local_file(user_token: dict, local_path: str, filename: str, parent_id: str,
                        progress_cb=None) -> dict:
     # FIX #5: wrap the resumable upload loop so HttpErrors surface clearly
